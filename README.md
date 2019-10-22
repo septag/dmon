@@ -1,10 +1,8 @@
-[![Build Status](https://travis-ci.org/septag/rizz.svg?branch=master)](https://travis-ci.org/septag/rizz)
-
-## dirwatch
+## dmon
 [@septag](https://twitter.com/septagh)  
 
 
-[License (BSD 2-clause)](https://github.com/septag/dirwatch/blob/master/LICENSE)
+[License (BSD 2-clause)](https://github.com/septag/dmon/blob/master/LICENSE)
 --------------------------------------------------------------------------
 
 <a href="http://opensource.org/licenses/BSD-2-Clause" target="_blank">
@@ -13,7 +11,7 @@
 
 	Copyright 2019 Sepehr Taghdisian. All rights reserved.
 	
-	https://github.com/septag/rizz
+	https://github.com/septag/dmon
 	
 	Redistribution and use in source and binary forms, with or without
 	modification, are permitted provided that the following conditions are met:
