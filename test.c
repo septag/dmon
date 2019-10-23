@@ -1,5 +1,6 @@
 #include <stdio.h>
 
+#define DMON_IMPL
 #include "dmon.h"
 
 static void watch_callback(dmon_watch_id watch_id, dmon_action action, const char* rootdir,
@@ -26,7 +27,7 @@ int main(int argc, char* argv[])
     if (argc > 1) {
         dmon_init();
         puts("waiting for changes ..");
-        dmon_watch(argv[1], watch_callback, DMON_WATCHFLAGS_RECURSIVE|DMON_WATCHFLAGS_IGNORE_DIRECTORIES, NULL); 
+        dmon_watch(argv[1], watch_callback, DMON_WATCHFLAGS_RECURSIVE, NULL); 
         getchar();
         dmon_deinit();
     } else {
