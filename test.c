@@ -23,10 +23,14 @@ static void watch_callback(dmon_watch_id watch_id, dmon_action action, const cha
 
 int main(int argc, char* argv[])
 {
-    dmon_init();
-    puts("waiting for changes ..");
-    dmon_watch("c:\\projects\\dmon\\test", watch_callback, DMON_WATCHFLAGS_RECURSIVE|DMON_WATCHFLAGS_IGNORE_DIRECTORIES, NULL); 
-    getchar();
-    dmon_deinit();
+    if (argc > 1) {
+        dmon_init();
+        puts("waiting for changes ..");
+        dmon_watch(argv[1], watch_callback, DMON_WATCHFLAGS_RECURSIVE|DMON_WATCHFLAGS_IGNORE_DIRECTORIES, NULL); 
+        getchar();
+        dmon_deinit();
+    } else {
+        puts("usage: test dirname");
+    }
     return 0;
 }
