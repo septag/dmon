@@ -51,6 +51,9 @@
 //      DMON_API_DECL, DMON_API_IMPL
 //          define these to provide your own API declerations. (for example: static)
 //          default is nothing (which is extern in C language)
+//      DMON_MAX_PATH
+//          Maximum size of path characters
+//          default is 260 characters
 //
 // TODO:
 //      - MacOS (FSEvents) backend
@@ -131,10 +134,6 @@ void dmon_unwatch(dmon_watch_id id);
 #        define NOMINMAX
 #    endif
 #    include <windows.h>
-#    ifndef DMON_MAX_PATH
-#        define DMON_MAX_PATH 260
-#    endif
-
 #    include <intrin.h>
 #    ifdef _MSC_VER
 #        pragma intrinsic(_InterlockedExchange)
