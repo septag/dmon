@@ -281,7 +281,7 @@ _DMON_PRIVATE char* dmon__strcat(char* dst, int dst_sz, const char* src)
 
 // stretchy buffer: https://github.com/nothings/stb/blob/master/stretchy_buffer.h
 #ifdef STB_STRETCHY_BUFFER_IMPL
-#define stb_sb_free(a)         ((a) ? free(stb__sbraw(a)),0 : 0)
+#define stb_sb_free(a)         ((a) ? DMON_FREE(stb__sbraw(a)),0 : 0)
 #define stb_sb_push(a,v)       (stb__sbmaybegrow(a,1), (a)[stb__sbn(a)++] = (v))
 #define stb_sb_count(a)        ((a) ? stb__sbn(a) : 0)
 #define stb_sb_add(a,n)        (stb__sbmaybegrow(a,n), stb__sbn(a)+=(n), &(a)[stb__sbn(a)-(n)])
