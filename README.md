@@ -12,6 +12,7 @@ It provides a unified solution to multiple system APIs that exist for each OS. I
 ### Usage
 
 You just have to include the file and use it's functions. It is also compatible with C++ code.
+Backslashes in Windows paths are also converted to '/' for portability.
 
 ```c
 #define DMON_IMPL
@@ -26,7 +27,7 @@ static void watch_callback(dmon_watch_id watch_id, dmon_action action, const cha
 int main() 
 {
     dmon_init();
-    dmon_watch(argv[1], watch_callback, DMON_WATCHFLAGS_RECURSIVE, NULL); 
+    dmon_watch("/path/to/directory", watch_callback, DMON_WATCHFLAGS_RECURSIVE, NULL); 
     // wait ...
     dmon_deinit();
 	return 0;
