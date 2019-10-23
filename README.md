@@ -1,6 +1,39 @@
 ## dmon
 [@septag](https://twitter.com/septagh)  
 
+_dmon_ is a tiny C library that provides a portable solution for monitoring changes in a directory.
+It provides a unified solution to multiple system APIs that exist for each OS. It can also monitor directories recursively. 
+
+### Platforms
+- Windows: Tested with Windows10 SDK + Visual Studio 2019
+- Linux: Tested with gcc-7.4/clang-6, ubuntu 18.04 LTS
+- MacOS: WIP
+
+### Usage
+
+You just have to include the file and use it's functions. It is also compatible with C++ code.
+
+```c
+#define DMON_IMPL
+#include "dmon.h"
+
+static void watch_callback(dmon_watch_id watch_id, dmon_action action, const char* rootdir,
+                           const char* filepath, const char* oldfilepath, void* user)
+{
+    // receive change events. type of event is stored in 'action' variable
+}
+
+int main() 
+{
+    dmon_init();
+    dmon_watch(argv[1], watch_callback, DMON_WATCHFLAGS_RECURSIVE, NULL); 
+    // wait ...
+    dmon_deinit();
+	return 0;
+}
+```
+
+For more information and how to customize more functionality, see [dmon.h](dmon.h)
 
 [License (BSD 2-clause)](https://github.com/septag/dmon/blob/master/LICENSE)
 --------------------------------------------------------------------------

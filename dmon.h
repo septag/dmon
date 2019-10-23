@@ -48,6 +48,9 @@
 //      DMON_LOG_DEBUG
 //          define this to provide your own extra debug logging mechanism
 //          default implementation logs to stdout in DEBUG and does nothing in other builds
+//      DMON_API_DECL, DMON_API_IMPL
+//          define these to provide your own API declerations. (for example: static)
+//          default is nothing (which is extern in C language)
 //
 // TODO:
 //      - MacOS (FSEvents) backend
