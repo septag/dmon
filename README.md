@@ -1,7 +1,7 @@
 ## dmon
 [@septag](https://twitter.com/septagh)  
 
-_dmon_ is a tiny C library that provides a portable solution for monitoring changes in a directory.
+_dmon_ is a tiny C library that monitors changes in a directory.
 It provides a unified solution to multiple system APIs that exist for each OS. It can also monitor directories recursively. 
 
 ### Platforms
@@ -33,7 +33,7 @@ int main()
 }
 ```
 
-For more information and how to customize more functionality, see [dmon.h](dmon.h)
+For more information and how to customize functionality, see [dmon.h](dmon.h)
 
 [License (BSD 2-clause)](https://github.com/septag/dmon/blob/master/LICENSE)
 --------------------------------------------------------------------------
