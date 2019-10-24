@@ -36,6 +36,12 @@ int main()
 
 For more information and how to customize functionality, see [dmon.h](dmon.h)
 
+To build on linux, link with `pthread`:
+```gcc test.c -lpthread -o test```
+
+To build on MacOS, link with `CoreServices` and `CoreFoundation`:
+```clang test.c -framework CoreFoundation -framework CoreServices -lpthread -o test```
+
 [License (BSD 2-clause)](https://github.com/septag/dmon/blob/master/LICENSE)
 --------------------------------------------------------------------------
 
