@@ -5,9 +5,9 @@ _dmon_ is a tiny C library that monitors changes in a directory.
 It provides a unified solution to multiple system APIs that exist for each OS. It can also monitor directories recursively. 
 
 ### Platforms
-- Windows: Tested with Windows10 SDK + Visual Studio 2019
-- Linux: Tested with gcc-7.4/clang-6, ubuntu 18.04 LTS
-- MacOS: WIP
+- Windows: `ReadDirectoryChangesW` backend. Tested with Windows10 SDK + Visual Studio 2019
+- Linux: `inotify` backend. Tested with gcc-7.4/clang-6, ubuntu 18.04 LTS
+- MacOS: `FSEvents` backend. Tested with MacOS-10.14 clang 10
 
 ### Usage
 
