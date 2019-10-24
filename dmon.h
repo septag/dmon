@@ -3,7 +3,7 @@
 // License: https://github.com/septag/dmon#license-bsd-2-clause
 //
 //  Portable directory monitoring library
-//  watches directories for file or directory changes. 
+//  watches directories for file or directory changes.
 //
 // clang-format off
 // Usage: 
@@ -54,15 +54,18 @@
 //      DMON_MAX_PATH
 //          Maximum size of path characters
 //          default is 260 characters
+//      DMON_MAX_WATCHES
+//          Maximum number of watch directories
+//          default is 64
 //
 // TODO:
-//      - MacOS (FSEvents) backend
 //      - DMON_WATCHFLAGS_FOLLOW_SYMLINKS does not resolve files
 //      - implement DMON_WATCHFLAGS_OUTOFSCOPE_LINKS 
 //      - implement DMON_WATCHFLAGS_IGNORE_DIRECTORIES
 //  
 // History:
 //      1.0.0       First version. working Win32/Linux backends
+//      1.1.0       MacOS backend
 //
 #ifndef __DMON_H__
 #define __DMON_H__
@@ -138,7 +141,6 @@ void dmon_unwatch(dmon_watch_id id);
 #    ifdef _MSC_VER
 #        pragma intrinsic(_InterlockedExchange)
 #    endif
-#    define STB_STRETCHY_BUFFER_IMPL
 #elif DMON_OS_LINUX
 #    ifndef __USE_MISC
 #        define __USE_MISC
@@ -154,7 +156,12 @@ void dmon_unwatch(dmon_watch_id id);
 #    include <time.h>
 #    include <unistd.h>
 
-#    define STB_STRETCHY_BUFFER_IMPL
+#elif DMON_OS_MACOS
+#   include <pthread.h>
+#   include <CoreServices/CoreServices.h>
+#   include <sys/time.h>
+#   include <sys/stat.h>
+#   include <dispatch/dispatch.h>
 #endif
 
 #ifndef DMON_MALLOC
@@ -280,7 +287,6 @@ _DMON_PRIVATE char* dmon__strcat(char* dst, int dst_sz, const char* src)
 }
 
 // stretchy buffer: https://github.com/nothings/stb/blob/master/stretchy_buffer.h
-#ifdef STB_STRETCHY_BUFFER_IMPL
 #define stb_sb_free(a)         ((a) ? DMON_FREE(stb__sbraw(a)),0 : 0)
 #define stb_sb_push(a,v)       (stb__sbmaybegrow(a,1), (a)[stb__sbn(a)++] = (v))
 #define stb_sb_count(a)        ((a) ? stb__sbn(a) : 0)
@@ -313,7 +319,6 @@ static void * stb__sbgrowf(void *arr, int increment, int itemsize)
         return (void *) (2*sizeof(int)); // try to force a NULL pointer exception later
     }
 }
-#endif // STB_STRETCHY_BUFFER_IMPL
 
 // watcher callback (same as dmon.h's decleration)
 typedef void (dmon__watch_cb)(dmon_watch_id, dmon_action, const char*, const char*, const char*, void*);
@@ -1043,6 +1048,376 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
                               (flags & DMON_WATCHFLAGS_FOLLOW_SYMLINKS) ? true : false, watch);
     }
 
+
+    pthread_mutex_unlock(&_dmon.mutex);
+    __sync_lock_test_and_set(&_dmon.modify_watches, 0);
+    return dmon__make_id(id);
+}
+
+DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
+{
+    DMON_ASSERT(id.id > 0);
+
+    __sync_lock_test_and_set(&_dmon.modify_watches, 1);
+    pthread_mutex_lock(&_dmon.mutex);
+
+    int index = id.id - 1;
+    DMON_ASSERT(index < _dmon.num_watches);
+
+    dmon__unwatch(&_dmon.watches[index]);
+    if (index != _dmon.num_watches - 1) {
+        dmon__swap(_dmon.watches[index], _dmon.watches[_dmon.num_watches - 1], dmon__watch_state);
+    }
+    --_dmon.num_watches;
+
+    pthread_mutex_unlock(&_dmon.mutex);
+    __sync_lock_test_and_set(&_dmon.modify_watches, 0);
+}
+// clang-format off
+#elif DMON_OS_MACOS
+// FSEvents MacOS backend
+typedef struct dmon__fsevent_event {
+    char filepath[DMON_MAX_PATH];
+    uint64_t event_id;
+    long event_flags;
+    dmon_watch_id watch_id;
+    bool skip;
+    bool move_valid;
+} dmon__fsevent_event;
+
+typedef struct dmon__watch_state {
+    dmon_watch_id id;
+    uint32_t watch_flags;
+    FSEventStreamRef fsev_stream_ref;
+    dmon__watch_cb* watch_cb;
+    void* user_data;
+    char rootdir[DMON_MAX_PATH];
+    bool init;
+} dmon__watch_state;
+
+typedef struct dmon__state {
+    dmon__watch_state watches[DMON_MAX_WATCHES];
+    dmon__fsevent_event* events;
+    int num_watches;
+    volatile int modify_watches;
+    pthread_t thread_handle;
+    dispatch_semaphore_t thread_sem;
+    pthread_mutex_t mutex;
+    CFRunLoopRef cf_loop_ref;
+    CFAllocatorRef cf_alloc_ref;
+    bool quit;
+} dmon__state;
+
+union dmon__cast_userdata {
+    void* ptr;
+    uint32_t id;
+};
+
+static bool _dmon_init;
+static dmon__state _dmon;
+// clang-format on
+
+_DMON_PRIVATE void* dmon__cf_malloc(CFIndex size, CFOptionFlags hints, void* info)
+{
+    _DMON_UNUSED(hints);
+    _DMON_UNUSED(info);
+    return DMON_MALLOC(size);
+}
+
+_DMON_PRIVATE void dmon__cf_free(void* ptr, void* info)
+{
+    _DMON_UNUSED(info);
+    DMON_FREE(ptr);
+}
+
+_DMON_PRIVATE void* dmon__cf_realloc(void* ptr, CFIndex newsize, CFOptionFlags hints, void* info)
+{
+    _DMON_UNUSED(hints);
+    _DMON_UNUSED(info);
+    return DMON_REALLOC(ptr, (size_t)newsize);
+}
+
+_DMON_PRIVATE void dmon__fsevent_process_events(void)
+{
+    for (int i = 0, c = stb_sb_count(_dmon.events); i < c; i++) {
+        dmon__fsevent_event* ev = &_dmon.events[i];
+        if (ev->skip) {
+            continue;
+        }
+
+        // remove redundant modify events on a single file
+        if (ev->event_flags & kFSEventStreamEventFlagItemModified) {
+            for (int j = i + 1; j < c; j++) {
+                dmon__fsevent_event* check_ev = &_dmon.events[j];
+                if ((check_ev->event_flags & kFSEventStreamEventFlagItemModified) &&
+                    strcmp(ev->filepath, check_ev->filepath) == 0) {
+                    ev->skip = true;
+                    break;
+                }
+            }
+        } else if ((ev->event_flags & kFSEventStreamEventFlagItemRenamed) && !ev->move_valid) {
+            for (int j = i + 1; j < c; j++) {
+                dmon__fsevent_event* check_ev = &_dmon.events[j];
+                if ((check_ev->event_flags & kFSEventStreamEventFlagItemRenamed) &&
+                    check_ev->event_id == (ev->event_id + 1)) {
+                    ev->move_valid = check_ev->move_valid = true;
+                    break;
+                }
+            }
+
+            // in some environments like finder file explorer:
+            // when a file is deleted, it is moved to recycle bin
+            // so if the destination of the move is not valid, it's probably DELETE or CREATE
+            // decide CREATE if file exists
+            if (!ev->move_valid) {
+                ev->event_flags &= ~kFSEventStreamEventFlagItemRenamed;
+
+                char abs_filepath[DMON_MAX_PATH];
+                dmon__watch_state* watch = &_dmon.watches[ev->watch_id.id-1];
+                dmon__strcpy(abs_filepath, sizeof(abs_filepath), watch->rootdir);
+                dmon__strcat(abs_filepath, sizeof(abs_filepath), ev->filepath);
+
+                struct stat root_st;
+                if (stat(abs_filepath, &root_st) != 0) {
+                    ev->event_flags |= kFSEventStreamEventFlagItemRemoved;
+                } else {
+                    ev->event_flags |= kFSEventStreamEventFlagItemCreated;
+                }
+            }
+        }
+    }
+
+    // trigger user callbacks
+    for (int i = 0, c = stb_sb_count(_dmon.events); i < c; i++) {
+        dmon__fsevent_event* ev = &_dmon.events[i];
+        if (ev->skip) {
+            continue;
+        }
+        dmon__watch_state* watch = &_dmon.watches[ev->watch_id.id - 1];
+
+        if (ev->event_flags & kFSEventStreamEventFlagItemCreated) {
+            watch->watch_cb(ev->watch_id, DMON_ACTION_CREATE, watch->rootdir, ev->filepath, NULL,
+                            watch->user_data);
+        } else if (ev->event_flags & kFSEventStreamEventFlagItemModified) {
+            watch->watch_cb(ev->watch_id, DMON_ACTION_MODIFY, watch->rootdir, ev->filepath, NULL,
+                            watch->user_data);
+        } else if (ev->event_flags & kFSEventStreamEventFlagItemRenamed) {
+            for (int j = i + 1; j < c; j++) {
+                dmon__fsevent_event* check_ev = &_dmon.events[j];
+                if (check_ev->event_flags & kFSEventStreamEventFlagItemRenamed) {
+                    watch->watch_cb(check_ev->watch_id, DMON_ACTION_MOVE, watch->rootdir,
+                                    check_ev->filepath, ev->filepath, watch->user_data);
+                    break;
+                }
+            }
+        } else if (ev->event_flags & kFSEventStreamEventFlagItemRemoved) {
+            watch->watch_cb(ev->watch_id, DMON_ACTION_DELETE, watch->rootdir, ev->filepath, NULL,
+                            watch->user_data);
+        }
+    }
+
+    stb_sb_reset(_dmon.events);
+}
+
+static void* dmon__thread(void* arg)
+{
+    struct timespec req = { (time_t)10 / 1000, (long)(10 * 1000000) };
+    struct timespec rem = { 0, 0 };
+
+    _dmon.cf_loop_ref = CFRunLoopGetCurrent();
+    dispatch_semaphore_signal(_dmon.thread_sem);
+
+    while (!_dmon.quit) {
+        if (_dmon.modify_watches || pthread_mutex_trylock(&_dmon.mutex) != 0) {
+            nanosleep(&req, &rem);
+            continue;
+        }
+
+        if (_dmon.num_watches == 0) {
+            nanosleep(&req, &rem);
+            pthread_mutex_unlock(&_dmon.mutex);
+            continue;
+        }
+
+        for (int i = 0; i < _dmon.num_watches; i++) {
+            dmon__watch_state* watch = &_dmon.watches[i];
+            if (!watch->init) {
+                DMON_ASSERT(watch->fsev_stream_ref);
+                FSEventStreamScheduleWithRunLoop(watch->fsev_stream_ref, _dmon.cf_loop_ref,
+                                                 kCFRunLoopDefaultMode);
+                FSEventStreamStart(watch->fsev_stream_ref);
+
+                watch->init = true;
+            }
+        }
+
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.5, kCFRunLoopRunTimedOut);
+        dmon__fsevent_process_events();
+
+        pthread_mutex_unlock(&_dmon.mutex);
+    }
+
+    CFRunLoopStop(_dmon.cf_loop_ref);
+    _dmon.cf_loop_ref = NULL;
+    return 0x0;
+}
+
+_DMON_PRIVATE void dmon__unwatch(dmon__watch_state* watch)
+{
+    memset(watch, 0x0, sizeof(dmon__watch_state));
+}
+
+DMON_API_IMPL void dmon_init(void)
+{
+    DMON_ASSERT(!_dmon_init);
+    pthread_mutex_init(&_dmon.mutex, NULL);
+
+    CFAllocatorContext cf_alloc_ctx = { 0 };
+    cf_alloc_ctx.allocate = dmon__cf_malloc;
+    cf_alloc_ctx.deallocate = dmon__cf_free;
+    cf_alloc_ctx.reallocate = dmon__cf_realloc;
+    _dmon.cf_alloc_ref = CFAllocatorCreate(NULL, &cf_alloc_ctx);
+
+    _dmon.thread_sem = dispatch_semaphore_create(0);
+    DMON_ASSERT(_dmon.thread_sem);
+
+    int r = pthread_create(&_dmon.thread_handle, NULL, dmon__thread, NULL);
+    _DMON_UNUSED(r);
+    DMON_ASSERT(r == 0 && "pthread_create failed");
+
+    // wait for thread to initialize loop object
+    dispatch_semaphore_wait(_dmon.thread_sem, DISPATCH_TIME_FOREVER);
+
+    _dmon_init = true;
+}
+
+DMON_API_IMPL void dmon_deinit(void)
+{
+    DMON_ASSERT(_dmon_init);
+    _dmon.quit = true;
+    pthread_join(_dmon.thread_handle, NULL);
+
+    dispatch_release(_dmon.thread_sem);
+
+    for (int i = 0; i < _dmon.num_watches; i++) {
+        dmon__unwatch(&_dmon.watches[i]);
+    }
+
+    pthread_mutex_destroy(&_dmon.mutex);
+    stb_sb_free(_dmon.events);
+    if (_dmon.cf_alloc_ref) {
+        CFRelease(_dmon.cf_alloc_ref);
+    }
+
+    _dmon_init = false;
+}
+
+_DMON_PRIVATE void dmon__fsevent_callback(ConstFSEventStreamRef streamRef, void* user_data,
+                                          size_t num_events, void* event_paths,
+                                          const FSEventStreamEventFlags event_flags[],
+                                          const FSEventStreamEventId event_ids[])
+{
+    union dmon__cast_userdata _userdata;
+    _userdata.ptr = user_data;
+    dmon_watch_id watch_id = dmon__make_id(_userdata.id);
+    DMON_ASSERT(watch_id.id > 0);
+    dmon__watch_state* watch = &_dmon.watches[watch_id.id - 1];
+    char abs_filepath[DMON_MAX_PATH];
+
+    for (size_t i = 0; i < num_events; i++) {
+        const char* filepath = ((const char**)event_paths)[i];
+        long flags = (long)event_flags[i];
+        uint64_t event_id = (uint64_t)event_ids[i];
+        dmon__fsevent_event ev;
+        memset(&ev, 0x0, sizeof(ev));
+
+        dmon__strcpy(abs_filepath, sizeof(abs_filepath), filepath);
+        // strip the root dir
+        DMON_ASSERT(strstr(abs_filepath, watch->rootdir) == abs_filepath);
+        dmon__strcpy(ev.filepath, sizeof(ev.filepath), abs_filepath + strlen(watch->rootdir));
+
+        ev.event_flags = flags;
+        ev.event_id = event_id;
+        ev.watch_id = watch_id;
+        stb_sb_push(_dmon.events, ev);
+    }
+}
+
+DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
+                                       void (*watch_cb)(dmon_watch_id watch_id, dmon_action action,
+                                                        const char* dirname, const char* filename,
+                                                        const char* oldname, void* user),
+                                       uint32_t flags, void* user_data)
+{
+    DMON_ASSERT(watch_cb);
+    DMON_ASSERT(rootdir && rootdir[0]);
+
+    __sync_lock_test_and_set(&_dmon.modify_watches, 1);
+    pthread_mutex_lock(&_dmon.mutex);
+
+    DMON_ASSERT(_dmon.num_watches < DMON_MAX_WATCHES);
+
+    uint32_t id = ++_dmon.num_watches;
+    dmon__watch_state* watch = &_dmon.watches[id - 1];
+    watch->id = dmon__make_id(id);
+    watch->watch_flags = flags;
+    watch->watch_cb = watch_cb;
+    watch->user_data = user_data;
+
+    struct stat root_st;
+    if (stat(rootdir, &root_st) != 0 || !S_ISDIR(root_st.st_mode) ||
+        (root_st.st_mode & S_IRUSR) != S_IRUSR) {
+        _DMON_LOG_ERRORF("Could not open/read directory: %s", rootdir);
+        pthread_mutex_unlock(&_dmon.mutex);
+        __sync_lock_test_and_set(&_dmon.modify_watches, 0);
+        return dmon__make_id(0);
+    }
+
+    if (S_ISLNK(root_st.st_mode)) {
+        if (flags & DMON_WATCHFLAGS_FOLLOW_SYMLINKS) {
+            char linkpath[PATH_MAX];
+            char* r = realpath(rootdir, linkpath);
+            _DMON_UNUSED(r);
+            DMON_ASSERT(r);
+
+            dmon__strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, linkpath);
+        } else {
+            _DMON_LOG_ERRORF("symlinks are unsupported: %s. use DMON_WATCHFLAGS_FOLLOW_SYMLINKS",
+                             rootdir);
+            pthread_mutex_unlock(&_dmon.mutex);
+            __sync_lock_test_and_set(&_dmon.modify_watches, 0);
+            return dmon__make_id(0);
+        }
+    } else {
+        dmon__strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, rootdir);
+    }
+
+    // add trailing slash
+    int rootdir_len = strlen(watch->rootdir);
+    if (watch->rootdir[rootdir_len - 1] != '/') {
+        watch->rootdir[rootdir_len] = '/';
+        watch->rootdir[rootdir_len + 1] = '\0';
+    }
+
+    // create FS objects
+    CFStringRef cf_dir = CFStringCreateWithCString(NULL, watch->rootdir, kCFStringEncodingUTF8);
+    CFArrayRef cf_dirarr = CFArrayCreate(NULL, (const void**)&cf_dir, 1, NULL);
+
+    FSEventStreamContext ctx;
+    union dmon__cast_userdata userdata;
+    userdata.id = id;
+    ctx.version = 0;
+    ctx.info = userdata.ptr;
+    ctx.retain = NULL;
+    ctx.release = NULL;
+    ctx.copyDescription = NULL;
+    watch->fsev_stream_ref = FSEventStreamCreate(_dmon.cf_alloc_ref, dmon__fsevent_callback, &ctx,
+                                                 cf_dirarr, kFSEventStreamEventIdSinceNow, 0.25,
+                                                 kFSEventStreamCreateFlagFileEvents);
+
+
+    CFRelease(cf_dirarr);
+    CFRelease(cf_dir);
 
     pthread_mutex_unlock(&_dmon.mutex);
     __sync_lock_test_and_set(&_dmon.modify_watches, 0);
