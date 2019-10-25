@@ -256,7 +256,7 @@ _DMON_PRIVATE char* dmon__strcpy(char* dst, int dst_sz, const char* src)
     DMON_ASSERT(dst);
     DMON_ASSERT(src);
 
-    const int len = strlen(src);
+    const int32_t len = (int32_t)strlen(src);
     const int32_t _max = dst_sz - 1;
     const int32_t num = (len < _max ? len : _max);
     memcpy(dst, src, num);
@@ -267,7 +267,7 @@ _DMON_PRIVATE char* dmon__strcpy(char* dst, int dst_sz, const char* src)
 
 _DMON_PRIVATE char* dmon__unixpath(char* dst, int size, const char* path)
 {
-    int len = strlen(path);
+    size_t len = strlen(path);
     len = dmon__min(len, size - 1);
 
     for (int i = 0; i < len; i++) {
@@ -282,7 +282,7 @@ _DMON_PRIVATE char* dmon__unixpath(char* dst, int size, const char* path)
 
 _DMON_PRIVATE char* dmon__strcat(char* dst, int dst_sz, const char* src)
 {
-    int len = strlen(dst);
+    int len = (int)strlen(dst);
     return dmon__strcpy(dst + len, dst_sz - len, src);
 }
 
@@ -301,8 +301,6 @@ _DMON_PRIVATE char* dmon__strcat(char* dst, int dst_sz, const char* src)
 #define stb__sbneedgrow(a,n)  ((a)==0 || stb__sbn(a)+(n) >= stb__sbm(a))
 #define stb__sbmaybegrow(a,n) (stb__sbneedgrow(a,(n)) ? stb__sbgrow(a,n) : 0)
 #define stb__sbgrow(a,n)      (*((void **)&(a)) = stb__sbgrowf((a), (n), sizeof(*(a))))
-
-#include <stdlib.h>
 
 static void * stb__sbgrowf(void *arr, int increment, int itemsize)
 {
@@ -467,7 +465,7 @@ _DMON_PRIVATE DWORD WINAPI dmon__thread(LPVOID arg)
         DWORD wait_result = WaitForMultipleObjects(_dmon.num_watches, wait_handles, FALSE, 10);
         DMON_ASSERT(wait_result != WAIT_FAILED);
         if (wait_result != WAIT_TIMEOUT) {
-            dmon__watch_state* watch = &_dmon.watches[WAIT_OBJECT_0 - wait_result];
+            dmon__watch_state* watch = &_dmon.watches[wait_result - WAIT_OBJECT_0];
             DMON_ASSERT(HasOverlappedIoCompleted(&watch->overlapped));
 
             DWORD bytes;
@@ -579,7 +577,7 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
 
     dmon__strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, rootdir);
     dmon__unixpath(watch->rootdir, sizeof(watch->rootdir), rootdir);
-    int rootdir_len = strlen(watch->rootdir);
+    size_t rootdir_len = strlen(watch->rootdir);
     if (watch->rootdir[rootdir_len - 1] != '/') {
         watch->rootdir[rootdir_len] = '/';
         watch->rootdir[rootdir_len + 1] = '\0';
@@ -612,7 +610,7 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
 
     LeaveCriticalSection(&_dmon.mutex);
     _InterlockedExchange(&_dmon.modify_watches, 0);
-    return dmon__make_id(0);
+    return dmon__make_id(id);
 }
 
 DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
