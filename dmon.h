@@ -66,6 +66,7 @@
 // History:
 //      1.0.0       First version. working Win32/Linux backends
 //      1.1.0       MacOS backend
+//      1.1.1       Minor fixes, eliminate gcc/clang warnings with -Wall
 //
 #ifndef __DMON_H__
 #define __DMON_H__
@@ -268,9 +269,9 @@ _DMON_PRIVATE char* dmon__strcpy(char* dst, int dst_sz, const char* src)
 _DMON_PRIVATE char* dmon__unixpath(char* dst, int size, const char* path)
 {
     size_t len = strlen(path);
-    len = dmon__min(len, size - 1);
+    len = dmon__min(len, (size_t)size - 1);
 
-    for (int i = 0; i < len; i++) {
+    for (size_t i = 0; i < len; i++) {
         if (path[i] != '\\')
             dst[i] = path[i];
         else
@@ -856,6 +857,8 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
 
 static void* dmon__thread(void* arg)
 {
+    _DMON_UNUSED(arg);
+
     static uint8_t buff[_DMON_TEMP_BUFFSIZE];
     struct timespec req = { (time_t)10 / 1000, (long)(10 * 1000000) };
     struct timespec rem = { 0, 0 };
@@ -1219,6 +1222,8 @@ _DMON_PRIVATE void dmon__fsevent_process_events(void)
 
 static void* dmon__thread(void* arg)
 {
+    _DMON_UNUSED(arg);
+
     struct timespec req = { (time_t)10 / 1000, (long)(10 * 1000000) };
     struct timespec rem = { 0, 0 };
 
@@ -1310,11 +1315,13 @@ DMON_API_IMPL void dmon_deinit(void)
     _dmon_init = false;
 }
 
-_DMON_PRIVATE void dmon__fsevent_callback(ConstFSEventStreamRef streamRef, void* user_data,
+_DMON_PRIVATE void dmon__fsevent_callback(ConstFSEventStreamRef stream_ref, void* user_data,
                                           size_t num_events, void* event_paths,
                                           const FSEventStreamEventFlags event_flags[],
                                           const FSEventStreamEventId event_ids[])
 {
+    _DMON_UNUSED(stream_ref);
+
     union dmon__cast_userdata _userdata;
     _userdata.ptr = user_data;
     dmon_watch_id watch_id = dmon__make_id(_userdata.id);
