@@ -355,7 +355,7 @@ typedef void (dmon__watch_cb)(dmon_watch_id, dmon_action, const char*, const cha
 #if DMON_OS_WINDOWS
 // IOCP (windows)
 #ifdef UNICODE
-#   define _DMON_WINAPI_STR(name, size) wchar_t _##name[size]; MultiByteToWideChar(CP_UTF8, 0, name, -1, 0, 0)
+#   define _DMON_WINAPI_STR(name, size) wchar_t _##name[size]; MultiByteToWideChar(CP_UTF8, 0, name, -1, _##name, size)
 #else
 #   define _DMON_WINAPI_STR(name, size) const char* _##name = name
 #endif
