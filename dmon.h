@@ -438,6 +438,10 @@ _DMON_PRIVATE void dmon__win32_process_events(void)
         }
         dmon__watch_state* watch = &_dmon.watches[ev->watch_id.id - 1];
 
+        if(watch == NULL || watch->watch_cb == NULL) {
+            continue;
+        }
+
         switch (ev->action) {
         case FILE_ACTION_ADDED:
             watch->watch_cb(ev->watch_id, DMON_ACTION_CREATE, watch->rootdir, ev->filepath, NULL,
@@ -855,6 +859,10 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
         }
         dmon__watch_state* watch = &_dmon.watches[ev->watch_id.id - 1];
 
+        if(watch == NULL || watch->watch_cb == NULL) {
+            continue;
+        }
+
         switch (ev->mask) {
         case IN_CREATE:
             watch->watch_cb(ev->watch_id, DMON_ACTION_CREATE, watch->rootdir, ev->filepath, NULL,
@@ -1225,6 +1233,10 @@ _DMON_PRIVATE void dmon__fsevent_process_events(void)
             continue;
         }
         dmon__watch_state* watch = &_dmon.watches[ev->watch_id.id - 1];
+
+        if(watch == NULL || watch->watch_cb == NULL) {
+            continue;
+        }
 
         if (ev->event_flags & kFSEventStreamEventFlagItemCreated) {
             watch->watch_cb(ev->watch_id, DMON_ACTION_CREATE, watch->rootdir, ev->filepath, NULL,
