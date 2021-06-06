@@ -901,7 +901,6 @@ static void* dmon__thread(void* arg)
     struct timespec req = { (time_t)10 / 1000, (long)(10 * 1000000) };
     struct timespec rem = { 0, 0 };
     struct timeval timeout;
-    timeout.tv_usec = 100000;
     uint64_t usecs_elapsed = 0;
 
     struct timeval starttm;
@@ -925,6 +924,8 @@ static void* dmon__thread(void* arg)
             fd_set rfds;
             FD_ZERO(&rfds);
             FD_SET(watch->fd, &rfds);
+            timeout.tv_sec = 0;
+            timeout.tv_usec = 100000;
 
             if (select(FD_SETSIZE, &rfds, NULL, NULL, &timeout)) {
                 ssize_t offset = 0;
