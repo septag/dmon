@@ -1,5 +1,5 @@
 //
-// Copyright 2019 Sepehr Taghdisian (septag@github). All rights reserved.
+// Copyright 2021 Sepehr Taghdisian (septag@github). All rights reserved.
 // License: https://github.com/septag/dmon#license-bsd-2-clause
 //
 //  Portable directory monitoring library
@@ -68,6 +68,7 @@
 //      1.1.0       MacOS backend
 //      1.1.1       Minor fixes, eliminate gcc/clang warnings with -Wall
 //      1.1.2       Eliminate some win32 dead code
+//      1.1.3       Fixed select not resetting causing high cpu usage on linux
 //
 #ifndef __DMON_H__
 #define __DMON_H__
@@ -474,6 +475,7 @@ _DMON_PRIVATE void dmon__win32_process_events(void)
 
 _DMON_PRIVATE DWORD WINAPI dmon__thread(LPVOID arg)
 {
+    _DMON_UNUSED(arg);
     HANDLE wait_handles[DMON_MAX_WATCHES];
 
     SYSTEMTIME starttm;
