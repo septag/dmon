@@ -14,7 +14,6 @@ AlwaysBreakBeforeMultilineStrings: 'true'
 AlwaysBreakTemplateDeclarations: 'true'
 BreakBeforeBinaryOperators: None
 BreakBeforeBraces: Linux
-ColumnLimit: '100'
 Cpp11BracedListStyle: 'false'
 IncludeBlocks: Preserve
 IndentCaseLabels: 'false'
