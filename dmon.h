@@ -753,6 +753,10 @@ _DMON_PRIVATE void dmon__watch_recursive(const char* dirname, int fd, uint32_t m
 
             dmon__watch_subdir subdir;
             dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir);
+            if (strstr(subdir.rootdir, watch->rootdir) == subdir.rootdir) {
+                dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir + strlen(watch->rootdir));
+            }
+
             stb_sb_push(watch->subdirs, subdir);
             stb_sb_push(watch->wds, wd);
 
@@ -761,6 +765,19 @@ _DMON_PRIVATE void dmon__watch_recursive(const char* dirname, int fd, uint32_t m
         }
     }
     closedir(dir);
+}
+
+_DMON_PRIVATE const char* dmon__find_subdir(const dmon__watch_state* watch, int wd)
+{
+    const int* wds = watch->wds;
+    for (int i = 0, c = stb_sb_count(wds); i < c; i++) {
+        if (wd == wds[i]) {
+            return watch->subdirs[i].rootdir;
+        }
+    }
+
+    DMON_ASSERT(0);
+    return NULL;
 }
 
 _DMON_PRIVATE void dmon__inotify_process_events(void)
@@ -784,8 +801,7 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
             bool loop_break = false;
             for (int j = i + 1; j < c && !loop_break; j++) {
                 dmon__inotify_event* check_ev = &_dmon.events[j];
-                if (check_ev->mask == IN_MOVED_FROM &&
-                    strcmp(ev->filepath, check_ev->filepath) == 0) {
+                if (check_ev->mask == IN_MOVED_FROM && strcmp(ev->filepath, check_ev->filepath) == 0) {
                     // there is a case where some programs (like gedit):
                     // when we save, it creates a temp file, and moves it to the file being modified
                     // search for these cases and remove all of them
@@ -928,7 +944,8 @@ static void* dmon__thread(void* arg)
                         struct inotify_event* iev = (struct inotify_event*)&buff[offset];
 
                         char filepath[DMON_MAX_PATH];
-                        dmon__strcpy(filepath, sizeof(filepath), iev->name);
+                        dmon__strcpy(filepath, sizeof(filepath), dmon__find_subdir(watch, iev->wd));
+                        dmon__strcat(filepath, sizeof(filepath), iev->name);
 
                         // TODO: ignore directories if flag is set
 
