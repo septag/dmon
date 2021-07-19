@@ -792,16 +792,28 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
         if (ev->mask & IN_MODIFY) {
             for (int j = i + 1; j < c; j++) {
                 dmon__inotify_event* check_ev = &_dmon.events[j];
-                if (check_ev->mask & IN_MODIFY && strcmp(ev->filepath, check_ev->filepath) == 0) {
+                if ((check_ev->mask & IN_MODIFY) && strcmp(ev->filepath, check_ev->filepath) == 0) {
                     ev->skip = true;
                     break;
+                } else if ((ev->mask & IN_ISDIR) && (check_ev->mask & (IN_ISDIR|IN_MODIFY))) {
+                    // in some cases, particularly when created files under sub directories
+                    // there can be two modify events for a single subdir one with trailing slash and one without
+                    // remove traling slash from both cases and test
+                    int l1 = strlen(ev->filepath);
+                    int l2 = strlen(check_ev->filepath);
+                    if (ev->filepath[l1-1] == '/')          ev->filepath[l1-1] = '\0';
+                    if (check_ev->filepath[l2-1] == '/')    check_ev->filepath[l2-1] = '\0';
+                    if (strcmp(ev->filepath, check_ev->filepath) == 0) {
+                        ev->skip = true;
+                        break;
+                    }
                 }
             }
         } else if (ev->mask & IN_CREATE) {
             bool loop_break = false;
             for (int j = i + 1; j < c && !loop_break; j++) {
                 dmon__inotify_event* check_ev = &_dmon.events[j];
-                if (check_ev->mask & IN_MOVED_FROM && strcmp(ev->filepath, check_ev->filepath) == 0) {
+                if ((check_ev->mask & IN_MOVED_FROM) && strcmp(ev->filepath, check_ev->filepath) == 0) {
                     // there is a case where some programs (like gedit):
                     // when we save, it creates a temp file, and moves it to the file being modified
                     // search for these cases and remove all of them
@@ -814,7 +826,7 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
                             break;
                         }
                     }
-                } else if (check_ev->mask & IN_MODIFY && strcmp(ev->filepath, check_ev->filepath) == 0) {
+                } else if ((check_ev->mask & IN_MODIFY) && strcmp(ev->filepath, check_ev->filepath) == 0) {
                     // Another case is that file is copied. CREATE and MODIFY happens sequentially
                     // so we ignore MODIFY event
                     check_ev->skip = true;
@@ -871,16 +883,20 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
             if (ev->mask & IN_ISDIR) {
                 if (watch->watch_flags & DMON_WATCHFLAGS_RECURSIVE) {
                     char watchdir[DMON_MAX_PATH];
-                    dmon__strcpy(watchdir, sizeof(watchdir), ev->filepath);
+                    dmon__strcpy(watchdir, sizeof(watchdir), watch->rootdir);
+                    dmon__strcat(watchdir, sizeof(watchdir), ev->filepath);
                     dmon__strcat(watchdir, sizeof(watchdir), "/");
-                    uint32_t mask = IN_MOVED_TO | IN_CREATE
-                        | IN_MOVED_FROM | IN_DELETE | IN_MODIFY;
+                    uint32_t mask = IN_MOVED_TO | IN_CREATE | IN_MOVED_FROM | IN_DELETE | IN_MODIFY;
                     int wd = inotify_add_watch(watch->fd, watchdir, mask);
                     _DMON_UNUSED(wd);
                     DMON_ASSERT(wd != -1);
 
                     dmon__watch_subdir subdir;
                     dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir);
+                    if (strstr(subdir.rootdir, watch->rootdir) == subdir.rootdir) {
+                        dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir + strlen(watch->rootdir));
+                    }
+
                     stb_sb_push(watch->subdirs, subdir);
                     stb_sb_push(watch->wds, wd);
                 }
@@ -1100,7 +1116,7 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
         return dmon__make_id(0);
     }
     dmon__watch_subdir subdir;
-    dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), watch->rootdir);
+    dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), "");   // root dir is just a dummy entry
     stb_sb_push(watch->subdirs, subdir);
     stb_sb_push(watch->wds, wd);
 
