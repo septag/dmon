@@ -780,6 +780,39 @@ _DMON_PRIVATE const char* dmon__find_subdir(const dmon__watch_state* watch, int 
     return NULL;
 }
 
+_DMON_PRIVATE void dmon__gather_directories(dmon__watch_state* watch, const char* dirname)
+{
+    struct dirent* entry;
+    DIR* dir = opendir(dirname);
+    DMON_ASSERT(dir);
+
+    char newdir[DMON_MAX_PATH];
+    while ((entry = readdir(dir)) != NULL) {
+        bool entry_valid = false;
+        if (entry->d_type == DT_DIR) {
+            if (strcmp(entry->d_name, "..") != 0 && strcmp(entry->d_name, ".") != 0) {
+                dmon__strcpy(newdir, sizeof(newdir), dirname);
+                dmon__strcat(newdir, sizeof(newdir), entry->d_name);
+                entry_valid = true;
+            }
+        } 
+
+        // add sub-directory to watch dirs
+        if (entry_valid) {
+            dmon__watch_subdir subdir;
+            dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), newdir);
+            if (strstr(subdir.rootdir, watch->rootdir) == subdir.rootdir) {
+                dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), newdir + strlen(watch->rootdir));
+            }
+
+            dmon__inotify_event dev = { { 0 }, IN_CREATE|IN_ISDIR, 0, watch->id, false };
+            dmon__strcpy(dev.filepath, sizeof(dev.filepath), subdir.rootdir);
+            stb_sb_push(_dmon.events, dev);
+        }
+    }
+    closedir(dir);
+}
+
 _DMON_PRIVATE void dmon__inotify_process_events(void)
 {
     for (int i = 0, c = stb_sb_count(_dmon.events); i < c; i++) {
@@ -864,11 +897,20 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
             if (!move_valid) {
                 ev->mask = IN_CREATE;
             }
+        } else if (ev->mask & IN_DELETE) {
+            for (int j = i + 1; j < c; j++) {
+                dmon__inotify_event* check_ev = &_dmon.events[j];
+                // if the file is DELETED and then MODIFIED after, just ignore the modify event
+                if ((check_ev->mask & IN_MODIFY) && strcmp(ev->filepath, check_ev->filepath) == 0) {
+                    check_ev->skip = true;
+                    break;
+                }                
+            }
         }
     }
 
     // trigger user callbacks
-    for (int i = 0, c = stb_sb_count(_dmon.events); i < c; i++) {
+    for (int i = 0; i < stb_sb_count(_dmon.events); i++) {
         dmon__inotify_event* ev = &_dmon.events[i];
         if (ev->skip) {
             continue;
@@ -899,6 +941,11 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
 
                     stb_sb_push(watch->subdirs, subdir);
                     stb_sb_push(watch->wds, wd);
+
+                    // some directories may be already created, for instance, with the command: mkdir -p
+                    // so we will enumerate them manually and add them to the events
+                    dmon__gather_directories(watch, watchdir);
+                    ev = &_dmon.events[i]; // gotta refresh the pointer because it may be relocated
                 }
             }
             watch->watch_cb(ev->watch_id, DMON_ACTION_CREATE, watch->rootdir, ev->filepath, NULL, watch->user_data);
@@ -907,7 +954,7 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
             watch->watch_cb(ev->watch_id, DMON_ACTION_MODIFY, watch->rootdir, ev->filepath, NULL, watch->user_data);
         }
         else if (ev->mask & IN_MOVED_FROM) {
-            for (int j = i + 1; j < c; j++) {
+            for (int j = i + 1; j < stb_sb_count(_dmon.events); j++) {
                 dmon__inotify_event* check_ev = &_dmon.events[j];
                 if (check_ev->mask & IN_MOVED_TO && ev->cookie == check_ev->cookie) {
                     watch->watch_cb(check_ev->watch_id, DMON_ACTION_MOVE, watch->rootdir,
@@ -920,7 +967,6 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
             watch->watch_cb(ev->watch_id, DMON_ACTION_DELETE, watch->rootdir, ev->filepath, NULL, watch->user_data);
         }
     }
-
 
     stb_sb_reset(_dmon.events);
 }
