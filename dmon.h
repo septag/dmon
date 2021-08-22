@@ -789,13 +789,13 @@ _DMON_PRIVATE void dmon__gather_directories(dmon__watch_state* watch, const char
     char newdir[DMON_MAX_PATH];
     while ((entry = readdir(dir)) != NULL) {
         bool entry_valid = false;
-        if (entry->d_type == DT_DIR) {
-            if (strcmp(entry->d_name, "..") != 0 && strcmp(entry->d_name, ".") != 0) {
-                dmon__strcpy(newdir, sizeof(newdir), dirname);
-                dmon__strcat(newdir, sizeof(newdir), entry->d_name);
-                entry_valid = true;
-            }
-        } 
+        bool is_dir = false;
+        if (strcmp(entry->d_name, "..") != 0 && strcmp(entry->d_name, ".") != 0) {
+            dmon__strcpy(newdir, sizeof(newdir), dirname);
+            dmon__strcat(newdir, sizeof(newdir), entry->d_name);
+            is_dir = (entry->d_type == DT_DIR);
+            entry_valid = true;
+        }
 
         // add sub-directory to watch dirs
         if (entry_valid) {
@@ -805,7 +805,7 @@ _DMON_PRIVATE void dmon__gather_directories(dmon__watch_state* watch, const char
                 dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), newdir + strlen(watch->rootdir));
             }
 
-            dmon__inotify_event dev = { { 0 }, IN_CREATE|IN_ISDIR, 0, watch->id, false };
+            dmon__inotify_event dev = { { 0 }, IN_CREATE|(is_dir ? IN_ISDIR : 0), 0, watch->id, false };
             dmon__strcpy(dev.filepath, sizeof(dev.filepath), subdir.rootdir);
             stb_sb_push(_dmon.events, dev);
         }
