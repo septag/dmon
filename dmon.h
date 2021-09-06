@@ -1533,7 +1533,13 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
             return dmon__make_id(0);
         }
     } else {
-        dmon__strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, rootdir);
+        char rootdir_abspath[DMON_MAX_PATH];
+        if (realpath(rootdir, rootdir_abspath) != NULL) {
+            dmon__strcpy(watch->rootdir, sizeof(watch->rootdir), rootdir_abspath);
+        } else {
+            dmon__strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, rootdir);
+        }
+        dmon__tolower(watch->rootdir, sizeof(watch->rootdir), watch->rootdir);
     }
 
     // add trailing slash
