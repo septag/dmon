@@ -115,6 +115,7 @@ DMON_API_DECL  dmon_watch_id dmon_watch(const char* rootdir,
                                           const char* oldfilepath, void* user),
                          uint32_t flags, void* user_data);
 DMON_API_DECL void dmon_unwatch(dmon_watch_id id);
+DMON_API_DECL bool dmon_watch_add(dmon_watch_id id, const char* subdir);
 
 #ifdef __cplusplus
 }
@@ -670,7 +671,6 @@ DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
     _InterlockedExchange(&_dmon.modify_watches, 0);
 }
 
-// clang-format off
 #elif DMON_OS_LINUX
 // inotify linux backend
 #define _DMON_TEMP_BUFFSIZE ((sizeof(struct inotify_event) + PATH_MAX) * 1024)
@@ -710,7 +710,6 @@ typedef struct dmon__state {
 
 static bool _dmon_init;
 static dmon__state _dmon;
-// clang-format on
 
 _DMON_PRIVATE void dmon__watch_recursive(const char* dirname, int fd, uint32_t mask,
                                          bool followlinks, dmon__watch_state* watch)
@@ -742,7 +741,7 @@ _DMON_PRIVATE void dmon__watch_recursive(const char* dirname, int fd, uint32_t m
 
         // add sub-directory to watch dirs
         if (entry_valid) {
-            int watchdir_len = strlen(watchdir);
+            int watchdir_len = (int)strlen(watchdir);
             if (watchdir[watchdir_len - 1] != '/') {
                 watchdir[watchdir_len] = '/';
                 watchdir[watchdir_len + 1] = '\0';
@@ -767,6 +766,60 @@ _DMON_PRIVATE void dmon__watch_recursive(const char* dirname, int fd, uint32_t m
     closedir(dir);
 }
 
+DMON_API_IMPL bool dmon_watch_add(dmon_watch_id id, const char* watchdir)
+{
+    DMON_ASSERT(id.id > 0 && id.id <= DMON_MAX_WATCHES);
+
+    pthread_mutex_lock(&_dmon.mutex);
+    dmon__watch_state* watch = &_dmon.watches[id.id - 1];
+
+    // check if the directory exists
+    // if watchdir contains absolute/root-included path, try to strip the rootdir from it
+    // else, we assume that watchdir is correct, so save it as it is
+    struct stat st;
+    dmon__watch_subdir subdir;
+    if (stat(watchdir, &st) == 0 && (st.st_mode & S_IFDIR)) {
+        dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir);
+        if (strstr(subdir.rootdir, watch->rootdir) == subdir.rootdir) {
+            dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir + strlen(watch->rootdir));
+        }
+    } else {
+        char fullpath[DMON_MAX_PATH];
+        dmon__strcpy(fullpath, sizeof(fullpath), watch->rootdir);
+        dmon__strcat(fullpath, sizeof(fullpath), watchdir);
+        if (stat(fullpath, &st) != 0 || (st.st_mode & S_IFDIR) == 0) {
+            _DMON_LOG_ERRORF("Watch directory '%s' is not valid", watchdir);
+            pthread_mutex_unlock(&_dmon.mutex);
+            return false;
+        }
+        dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir);
+    }
+
+    int dirlen = (int)strlen(subdir.rootdir);
+    if (subdir.rootdir[dirlen - 1] != '/') {
+        subdir.rootdir[dirlen] = '/';
+        subdir.rootdir[dirlen + 1] = '\0';
+    }
+
+    const uint32_t inotify_mask = IN_MOVED_TO | IN_CREATE | IN_MOVED_FROM | IN_DELETE | IN_MODIFY;
+    char fullpath[DMON_MAX_PATH];
+
+    dmon__strcpy(fullpath, sizeof(fullpath), watch->rootdir);
+    dmon__strcat(fullpath, sizeof(fullpath), subdir.rootdir);
+    int wd = inotify_add_watch(watch->fd, fullpath, inotify_mask);
+    if (wd == -1) {
+        _DMON_LOG_ERRORF("Error watching directory '%s'. (inotify_add_watch:err=%d)", watchdir, errno);
+        pthread_mutex_unlock(&_dmon.mutex);
+        return false;
+    }
+
+    stb_sb_push(watch->subdirs, subdir);
+    stb_sb_push(watch->wds, wd);
+
+    pthread_mutex_unlock(&_dmon.mutex);
+    return true;
+}
+
 _DMON_PRIVATE const char* dmon__find_subdir(const dmon__watch_state* watch, int wd)
 {
     const int* wds = watch->wds;
@@ -780,7 +833,7 @@ _DMON_PRIVATE const char* dmon__find_subdir(const dmon__watch_state* watch, int 
     return NULL;
 }
 
-_DMON_PRIVATE void dmon__gather_directories(dmon__watch_state* watch, const char* dirname)
+_DMON_PRIVATE void dmon__gather_recursive(dmon__watch_state* watch, const char* dirname)
 {
     struct dirent* entry;
     DIR* dir = opendir(dirname);
@@ -832,8 +885,8 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
                     // in some cases, particularly when created files under sub directories
                     // there can be two modify events for a single subdir one with trailing slash and one without
                     // remove traling slash from both cases and test
-                    int l1 = strlen(ev->filepath);
-                    int l2 = strlen(check_ev->filepath);
+                    int l1 = (int)strlen(ev->filepath);
+                    int l2 = (int)strlen(check_ev->filepath);
                     if (ev->filepath[l1-1] == '/')          ev->filepath[l1-1] = '\0';
                     if (check_ev->filepath[l2-1] == '/')    check_ev->filepath[l2-1] = '\0';
                     if (strcmp(ev->filepath, check_ev->filepath) == 0) {
@@ -944,7 +997,7 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
 
                     // some directories may be already created, for instance, with the command: mkdir -p
                     // so we will enumerate them manually and add them to the events
-                    dmon__gather_directories(watch, watchdir);
+                    dmon__gather_recursive(watch, watchdir);
                     ev = &_dmon.events[i]; // gotta refresh the pointer because it may be relocated
                 }
             }
@@ -1139,7 +1192,7 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
     }
 
     // add trailing slash
-    int rootdir_len = strlen(watch->rootdir);
+    int rootdir_len = (int)strlen(watch->rootdir);
     if (watch->rootdir[rootdir_len - 1] != '/') {
         watch->rootdir[rootdir_len] = '/';
         watch->rootdir[rootdir_len + 1] = '\0';
@@ -1156,7 +1209,7 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
     uint32_t inotify_mask = IN_MOVED_TO | IN_CREATE | IN_MOVED_FROM | IN_DELETE | IN_MODIFY;
     int wd = inotify_add_watch(watch->fd, watch->rootdir, inotify_mask);
     if (wd < 0) {
-        _DMON_LOG_ERRORF("watch failed: %s", watch->rootdir);
+       _DMON_LOG_ERRORF("Error watching directory '%s'. (inotify_add_watch:err=%d)", watch->rootdir, errno);
         pthread_mutex_unlock(&_dmon.mutex);
         __sync_lock_test_and_set(&_dmon.modify_watches, 0);
         return dmon__make_id(0);
@@ -1537,7 +1590,7 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
     }
 
     // add trailing slash
-    int rootdir_len = strlen(watch->rootdir);
+    int rootdir_len = (int)strlen(watch->rootdir);
     if (watch->rootdir[rootdir_len - 1] != '/') {
         watch->rootdir[rootdir_len] = '/';
         watch->rootdir[rootdir_len + 1] = '\0';
