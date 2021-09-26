@@ -5,7 +5,6 @@
 //  Portable directory monitoring library
 //  watches directories for file or directory changes.
 //
-// clang-format off
 // Usage:
 //      define DMON_IMPL and include this file to use it:
 //          #define DMON_IMPL
@@ -395,8 +394,6 @@ typedef struct dmon__state {
 static bool _dmon_init;
 static dmon__state _dmon;
 
-// clang-format on
-
 _DMON_PRIVATE bool dmon__refresh_watch(dmon__watch_state* watch)
 {
     return ReadDirectoryChangesW(watch->dir_handle, watch->buffer, sizeof(watch->buffer),
@@ -702,7 +699,6 @@ typedef struct dmon__state {
     dmon__watch_state watches[DMON_MAX_WATCHES];
     dmon__inotify_event* events;
     int num_watches;
-    volatile int modify_watches;
     pthread_t thread_handle;
     pthread_mutex_t mutex;
     bool quit;
@@ -770,7 +766,11 @@ DMON_API_IMPL bool dmon_watch_add(dmon_watch_id id, const char* watchdir)
 {
     DMON_ASSERT(id.id > 0 && id.id <= DMON_MAX_WATCHES);
 
-    pthread_mutex_lock(&_dmon.mutex);
+    bool skip_lock = pthread_self() == _dmon.thread_handle;
+
+    if (!skip_lock)
+        pthread_mutex_lock(&_dmon.mutex);
+
     dmon__watch_state* watch = &_dmon.watches[id.id - 1];
 
     // check if the directory exists
@@ -789,7 +789,8 @@ DMON_API_IMPL bool dmon_watch_add(dmon_watch_id id, const char* watchdir)
         dmon__strcat(fullpath, sizeof(fullpath), watchdir);
         if (stat(fullpath, &st) != 0 || (st.st_mode & S_IFDIR) == 0) {
             _DMON_LOG_ERRORF("Watch directory '%s' is not valid", watchdir);
-            pthread_mutex_unlock(&_dmon.mutex);
+            if (!skip_lock)
+                pthread_mutex_unlock(&_dmon.mutex);
             return false;
         }
         dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir);
@@ -801,22 +802,34 @@ DMON_API_IMPL bool dmon_watch_add(dmon_watch_id id, const char* watchdir)
         subdir.rootdir[dirlen + 1] = '\0';
     }
 
+    // check that the directory is not already added
+    for (int i = 0, c = stb_sb_count(watch->subdirs); i < c; i++) {
+        if (strcmp(subdir.rootdir, watch->subdirs[i].rootdir) == 0) {
+            _DMON_LOG_ERRORF("Error watching directory '%s', because it is already added.", watchdir);
+            if (!skip_lock) 
+                pthread_mutex_unlock(&_dmon.mutex);
+            return false;
+        }
+    }
+
     const uint32_t inotify_mask = IN_MOVED_TO | IN_CREATE | IN_MOVED_FROM | IN_DELETE | IN_MODIFY;
     char fullpath[DMON_MAX_PATH];
-
     dmon__strcpy(fullpath, sizeof(fullpath), watch->rootdir);
     dmon__strcat(fullpath, sizeof(fullpath), subdir.rootdir);
     int wd = inotify_add_watch(watch->fd, fullpath, inotify_mask);
     if (wd == -1) {
         _DMON_LOG_ERRORF("Error watching directory '%s'. (inotify_add_watch:err=%d)", watchdir, errno);
-        pthread_mutex_unlock(&_dmon.mutex);
+        if (!skip_lock)
+            pthread_mutex_unlock(&_dmon.mutex);
         return false;
     }
 
     stb_sb_push(watch->subdirs, subdir);
     stb_sb_push(watch->wds, wd);
 
-    pthread_mutex_unlock(&_dmon.mutex);
+    if (!skip_lock)
+        pthread_mutex_unlock(&_dmon.mutex);
+
     return true;
 }
 
@@ -1038,15 +1051,8 @@ static void* dmon__thread(void* arg)
     gettimeofday(&starttm, 0);
 
     while (!_dmon.quit) {
-
-        if (_dmon.modify_watches || pthread_mutex_trylock(&_dmon.mutex) != 0) {
-            nanosleep(&req, &rem);
-            continue;
-        }
-
-        if (_dmon.num_watches == 0) {
-            nanosleep(&req, &rem);
-            pthread_mutex_unlock(&_dmon.mutex);
+        nanosleep(&req, &rem);
+        if (_dmon.num_watches == 0 || pthread_mutex_trylock(&_dmon.mutex) != 0) {
             continue;
         }
 
@@ -1150,7 +1156,6 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
     DMON_ASSERT(watch_cb);
     DMON_ASSERT(rootdir && rootdir[0]);
 
-    __sync_lock_test_and_set(&_dmon.modify_watches, 1);
     pthread_mutex_lock(&_dmon.mutex);
 
     DMON_ASSERT(_dmon.num_watches < DMON_MAX_WATCHES);
@@ -1167,7 +1172,6 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
         (root_st.st_mode & S_IRUSR) != S_IRUSR) {
         _DMON_LOG_ERRORF("Could not open/read directory: %s", rootdir);
         pthread_mutex_unlock(&_dmon.mutex);
-        __sync_lock_test_and_set(&_dmon.modify_watches, 0);
         return dmon__make_id(0);
     }
 
@@ -1184,7 +1188,6 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
             _DMON_LOG_ERRORF("symlinks are unsupported: %s. use DMON_WATCHFLAGS_FOLLOW_SYMLINKS",
                              rootdir);
             pthread_mutex_unlock(&_dmon.mutex);
-            __sync_lock_test_and_set(&_dmon.modify_watches, 0);
             return dmon__make_id(0);
         }
     } else {
@@ -1202,7 +1205,6 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
     if (watch->fd < -1) {
         DMON_LOG_ERROR("could not create inotify instance");
         pthread_mutex_unlock(&_dmon.mutex);
-        __sync_lock_test_and_set(&_dmon.modify_watches, 0);
         return dmon__make_id(0);
     }
 
@@ -1211,7 +1213,6 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
     if (wd < 0) {
        _DMON_LOG_ERRORF("Error watching directory '%s'. (inotify_add_watch:err=%d)", watch->rootdir, errno);
         pthread_mutex_unlock(&_dmon.mutex);
-        __sync_lock_test_and_set(&_dmon.modify_watches, 0);
         return dmon__make_id(0);
     }
     dmon__watch_subdir subdir;
@@ -1227,7 +1228,6 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
 
 
     pthread_mutex_unlock(&_dmon.mutex);
-    __sync_lock_test_and_set(&_dmon.modify_watches, 0);
     return dmon__make_id(id);
 }
 
@@ -1235,7 +1235,6 @@ DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
 {
     DMON_ASSERT(id.id > 0);
 
-    __sync_lock_test_and_set(&_dmon.modify_watches, 1);
     pthread_mutex_lock(&_dmon.mutex);
 
     int index = id.id - 1;
@@ -1248,9 +1247,7 @@ DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
     --_dmon.num_watches;
 
     pthread_mutex_unlock(&_dmon.mutex);
-    __sync_lock_test_and_set(&_dmon.modify_watches, 0);
 }
-// clang-format off
 #elif DMON_OS_MACOS
 // FSEvents MacOS backend
 typedef struct dmon__fsevent_event {
@@ -1293,7 +1290,6 @@ union dmon__cast_userdata {
 
 static bool _dmon_init;
 static dmon__state _dmon;
-// clang-format on
 
 _DMON_PRIVATE void* dmon__cf_malloc(CFIndex size, CFOptionFlags hints, void* info)
 {
@@ -1652,9 +1648,7 @@ DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
     __sync_lock_test_and_set(&_dmon.modify_watches, 0);
 }
 
-// clang-format off
 #endif
 
 #endif    // DMON_IMPL
 #endif  // __DMON_H__
-// clang-format on
