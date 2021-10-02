@@ -1216,6 +1216,7 @@ typedef struct dmon__watch_state {
     dmon__watch_cb* watch_cb;
     void* user_data;
     char rootdir[DMON_MAX_PATH];
+    char rootdir_unmod[DMON_MAX_PATH];
     bool init;
 } dmon__watch_state;
 
@@ -1324,22 +1325,22 @@ _DMON_PRIVATE void dmon__fsevent_process_events(void)
         }
 
         if (ev->event_flags & kFSEventStreamEventFlagItemCreated) {
-            watch->watch_cb(ev->watch_id, DMON_ACTION_CREATE, watch->rootdir, ev->filepath, NULL,
+            watch->watch_cb(ev->watch_id, DMON_ACTION_CREATE, watch->rootdir_unmod, ev->filepath, NULL,
                             watch->user_data);
         } else if (ev->event_flags & kFSEventStreamEventFlagItemModified) {
-            watch->watch_cb(ev->watch_id, DMON_ACTION_MODIFY, watch->rootdir, ev->filepath, NULL,
+            watch->watch_cb(ev->watch_id, DMON_ACTION_MODIFY, watch->rootdir_unmod, ev->filepath, NULL,
                             watch->user_data);
         } else if (ev->event_flags & kFSEventStreamEventFlagItemRenamed) {
             for (int j = i + 1; j < c; j++) {
                 dmon__fsevent_event* check_ev = &_dmon.events[j];
                 if (check_ev->event_flags & kFSEventStreamEventFlagItemRenamed) {
-                    watch->watch_cb(check_ev->watch_id, DMON_ACTION_MOVE, watch->rootdir,
+                    watch->watch_cb(check_ev->watch_id, DMON_ACTION_MOVE, watch->rootdir_unmod,
                                     check_ev->filepath, ev->filepath, watch->user_data);
                     break;
                 }
             }
         } else if (ev->event_flags & kFSEventStreamEventFlagItemRemoved) {
-            watch->watch_cb(ev->watch_id, DMON_ACTION_DELETE, watch->rootdir, ev->filepath, NULL,
+            watch->watch_cb(ev->watch_id, DMON_ACTION_DELETE, watch->rootdir_unmod, ev->filepath, NULL,
                             watch->user_data);
         }
     }
@@ -1462,6 +1463,7 @@ _DMON_PRIVATE void dmon__fsevent_callback(ConstFSEventStreamRef stream_ref, void
     DMON_ASSERT(watch_id.id > 0);
     dmon__watch_state* watch = &_dmon.watches[watch_id.id - 1];
     char abs_filepath[DMON_MAX_PATH];
+    char abs_filepath_lower[DMON_MAX_PATH];
 
     for (size_t i = 0; i < num_events; i++) {
         const char* filepath = ((const char**)event_paths)[i];
@@ -1471,13 +1473,13 @@ _DMON_PRIVATE void dmon__fsevent_callback(ConstFSEventStreamRef stream_ref, void
         memset(&ev, 0x0, sizeof(ev));
 
         dmon__strcpy(abs_filepath, sizeof(abs_filepath), filepath);
+        dmon__unixpath(abs_filepath, sizeof(abs_filepath), abs_filepath);
 
-        // normalize path (TODO: have to recheck this to be consistent with other platforms)
-        dmon__tolower(abs_filepath, sizeof(abs_filepath),
-            dmon__unixpath(abs_filepath, sizeof(abs_filepath), abs_filepath));
+        // normalize path, so it would be the same on both MacOS file-system types (case/nocase)
+        dmon__tolower(abs_filepath_lower, sizeof(abs_filepath), abs_filepath);
+        DMON_ASSERT(strstr(abs_filepath_lower, watch->rootdir) == abs_filepath_lower);
 
-        // strip the root dir
-        DMON_ASSERT(strstr(abs_filepath, watch->rootdir) == abs_filepath);
+        // strip the root dir from the begining
         dmon__strcpy(ev.filepath, sizeof(ev.filepath), abs_filepath + strlen(watch->rootdir));
 
         ev.event_flags = flags;
@@ -1526,8 +1528,7 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
 
             dmon__strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, linkpath);
         } else {
-            _DMON_LOG_ERRORF("symlinks are unsupported: %s. use DMON_WATCHFLAGS_FOLLOW_SYMLINKS",
-                             rootdir);
+            _DMON_LOG_ERRORF("symlinks are unsupported: %s. use DMON_WATCHFLAGS_FOLLOW_SYMLINKS", rootdir);
             pthread_mutex_unlock(&_dmon.mutex);
             __sync_lock_test_and_set(&_dmon.modify_watches, 0);
             return dmon__make_id(0);
@@ -1535,12 +1536,13 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
     } else {
         char rootdir_abspath[DMON_MAX_PATH];
         if (realpath(rootdir, rootdir_abspath) != NULL) {
-            dmon__strcpy(watch->rootdir, sizeof(watch->rootdir), rootdir_abspath);
+            dmon__strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, rootdir_abspath);
         } else {
             dmon__strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, rootdir);
         }
-        dmon__tolower(watch->rootdir, sizeof(watch->rootdir), watch->rootdir);
     }
+
+    dmon__unixpath(watch->rootdir, sizeof(watch->rootdir), watch->rootdir);
 
     // add trailing slash
     int rootdir_len = strlen(watch->rootdir);
@@ -1549,8 +1551,11 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
         watch->rootdir[rootdir_len + 1] = '\0';
     }
 
+    dmon__strcpy(watch->rootdir_unmod, sizeof(watch->rootdir_unmod), watch->rootdir);
+    dmon__tolower(watch->rootdir, sizeof(watch->rootdir), watch->rootdir);
+
     // create FS objects
-    CFStringRef cf_dir = CFStringCreateWithCString(NULL, watch->rootdir, kCFStringEncodingUTF8);
+    CFStringRef cf_dir = CFStringCreateWithCString(NULL, watch->rootdir_unmod, kCFStringEncodingUTF8);
     CFArrayRef cf_dirarr = CFArrayCreate(NULL, (const void**)&cf_dir, 1, NULL);
 
     FSEventStreamContext ctx;
