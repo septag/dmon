@@ -42,6 +42,13 @@ To build on linux, link with `pthread`:
 To build on MacOS, link with `CoreServices` and `CoreFoundation`:
 ```clang test.c -framework CoreFoundation -framework CoreServices -lpthread -o test```
 
+### Linux Extras
+There is this other file `dmon_extra.h` that you can include optionally after `dmon.h` for linux backend. 
+There are two APIs that are introduced in that header, `dmon_watch_add` and `dmon_watch_rm` in which you can add/remove 
+sub-directories to currently watched directory. This can be useful in cases where there are large set of changes happening 
+on linux backend and you won't get all the events, because of some drawbacks of the `inotify` backend. So, by disabling `DMON_WATCHFLAGS_RECURSIVE` and using these functions to manually handle directory recursion, you can workaround those issues.
+
+
 [License (BSD 2-clause)](https://github.com/septag/dmon/blob/master/LICENSE)
 --------------------------------------------------------------------------
 
