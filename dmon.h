@@ -115,6 +115,7 @@ DMON_API_DECL  dmon_watch_id dmon_watch(const char* rootdir,
                          uint32_t flags, void* user_data);
 DMON_API_DECL void dmon_unwatch(dmon_watch_id id);
 DMON_API_DECL bool dmon_watch_add(dmon_watch_id id, const char* subdir);
+DMON_API_DECL bool dmon_watch_rm(dmon_watch_id id, const char* watchdir);
 
 #ifdef __cplusplus
 }
@@ -321,6 +322,7 @@ _DMON_PRIVATE char* dmon__strcat(char* dst, int dst_sz, const char* src)
 // stretchy buffer: https://github.com/nothings/stb/blob/master/stretchy_buffer.h
 #define stb_sb_free(a)         ((a) ? DMON_FREE(stb__sbraw(a)),0 : 0)
 #define stb_sb_push(a,v)       (stb__sbmaybegrow(a,1), (a)[stb__sbn(a)++] = (v))
+#define stb_sb_pop(a)          (stb__sbn(a)--)
 #define stb_sb_count(a)        ((a) ? stb__sbn(a) : 0)
 #define stb_sb_add(a,n)        (stb__sbmaybegrow(a,n), stb__sbn(a)+=(n), &(a)[stb__sbn(a)-(n)])
 #define stb_sb_last(a)         ((a)[stb__sbn(a)-1])
@@ -833,6 +835,55 @@ DMON_API_IMPL bool dmon_watch_add(dmon_watch_id id, const char* watchdir)
     return true;
 }
 
+DMON_API_IMPL bool dmon_watch_rm(dmon_watch_id id, const char* watchdir)
+{
+    DMON_ASSERT(id.id > 0 && id.id <= DMON_MAX_WATCHES);
+
+    bool skip_lock = pthread_self() == _dmon.thread_handle;
+
+    if (!skip_lock)
+        pthread_mutex_lock(&_dmon.mutex);
+
+    dmon__watch_state* watch = &_dmon.watches[id.id - 1];
+
+    char subdir[DMON_MAX_PATH];
+    dmon__strcpy(subdir, sizeof(subdir), watchdir);
+    if (strstr(subdir, watch->rootdir) == subdir) {
+        dmon__strcpy(subdir, sizeof(subdir), watchdir + strlen(watch->rootdir));
+    }
+
+    int dirlen = (int)strlen(subdir);
+    if (subdir[dirlen - 1] != '/') {
+        subdir[dirlen] = '/';
+        subdir[dirlen + 1] = '\0';
+    }
+
+    int i, c = stb_sb_count(watch->subdirs);
+    for (i = 0; i < c; i++) {
+        if (strcmp(watch->subdirs[i].rootdir, subdir) == 0) {
+            break;
+        }
+    }
+    if (i >= c) {
+        _DMON_LOG_ERRORF("Watch directory '%s' is not valid", watchdir);
+        if (!skip_lock)
+            pthread_mutex_unlock(&_dmon.mutex);
+        return false;
+    }
+    inotify_rm_watch(watch->fd, watch->wds[i]);
+
+    /* Remove entry from subdirs and wds by swapping position with the last entry */
+    watch->subdirs[i] = stb_sb_last(watch->subdirs);
+    stb_sb_pop(watch->subdirs);
+
+    watch->wds[i] = stb_sb_last(watch->wds);
+    stb_sb_pop(watch->wds);
+
+    if (!skip_lock)
+        pthread_mutex_unlock(&_dmon.mutex);
+    return true;
+}
+
 _DMON_PRIVATE const char* dmon__find_subdir(const dmon__watch_state* watch, int wd)
 {
     const int* wds = watch->wds;
@@ -842,7 +893,6 @@ _DMON_PRIVATE const char* dmon__find_subdir(const dmon__watch_state* watch, int 
         }
     }
 
-    DMON_ASSERT(0);
     return NULL;
 }
 
@@ -1079,18 +1129,21 @@ static void* dmon__thread(void* arg)
                     while (offset < len) {
                         struct inotify_event* iev = (struct inotify_event*)&buff[offset];
 
-                        char filepath[DMON_MAX_PATH];
-                        dmon__strcpy(filepath, sizeof(filepath), dmon__find_subdir(watch, iev->wd));
-                        dmon__strcat(filepath, sizeof(filepath), iev->name);
+                        const char *subdir = dmon__find_subdir(watch, iev->wd);
+                        if (subdir) {
+                            char filepath[DMON_MAX_PATH];
+                            dmon__strcpy(filepath, sizeof(filepath), subdir);
+                            dmon__strcat(filepath, sizeof(filepath), iev->name);
 
-                        // TODO: ignore directories if flag is set
+                            // TODO: ignore directories if flag is set
 
-                        if (stb_sb_count(_dmon.events) == 0) {
-                            usecs_elapsed = 0;
+                            if (stb_sb_count(_dmon.events) == 0) {
+                                usecs_elapsed = 0;
+                            }
+                            dmon__inotify_event dev = { { 0 }, iev->mask, iev->cookie, watch->id, false };
+                            dmon__strcpy(dev.filepath, sizeof(dev.filepath), filepath);
+                            stb_sb_push(_dmon.events, dev);
                         }
-                        dmon__inotify_event dev = { { 0 }, iev->mask, iev->cookie, watch->id, false };
-                        dmon__strcpy(dev.filepath, sizeof(dev.filepath), filepath);
-                        stb_sb_push(_dmon.events, dev);
 
                         offset += sizeof(struct inotify_event) + iev->len;
                     }
