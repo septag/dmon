@@ -2,6 +2,7 @@
 
 #define DMON_IMPL
 #include "dmon.h"
+#include "dmon_extra.h"
 
 static void watch_callback(dmon_watch_id watch_id, dmon_action action, const char* rootdir,
                            const char* filepath, const char* oldfilepath, void* user)
