@@ -5,16 +5,18 @@
 // Copyright 2021 Sepehr Taghdisian (septag@github). All rights reserved.
 // License: https://github.com/septag/dmon#license-bsd-2-clause
 //
-//  Extra header functionality for dmon.h, mainly for linux backends
+//  Extra header functionality for dmon.h for the backend based on inotify
 //  
 //  Add/Remove directory functions:
 //  dmon_watch_add: Adds a sub-directory to already valid watch_id. sub-directories are assumed to be relative to watch root_dir
 //  dmon_watch_add: Removes a sub-directory from already valid watch_id. sub-directories are assumed to be relative to watch root_dir
-//  Reason: Although the inotify has many improvements with last updates, but there are still flaws with that backend
-//          that I couldn't solve elegantly. This mainly happens with very large file sets that change at once in a watched folder.
-//          For example, copying/moving a huge set of files and sub-folders in a directory that is being watched.
-//          So for workaround, users are recommended to turn off DMON_WATCHFLAGS_RECURSIVE flag on the watch directory, 
-//          and use these functions to manually add and remove sub-directories by some interval
+//  Reason: The inotify backend does not work well when watching in recursive mode a root directory of a large tree, it may take
+//          quite a while until all inotify watches are established, and events will not be received in this time.  Also, since one
+//          inotify watch will be established per subdirectory, it is possible that the maximum amount of inotify watches per user
+//          will be reached. The default maximum is 8192.
+//          When using inotify backend users may turn off the DMON_WATCHFLAGS_RECURSIVE flag and add/remove selectively the
+//          sub-directories to be watched based on application-specific logic about which sub-directory actually needs to be watched.
+//          The function dmon_watch_add and dmon_watch_rm are used to this purpose.
 //
 
 #ifndef __DMON_H__
