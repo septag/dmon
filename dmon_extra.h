@@ -25,10 +25,8 @@
 extern "C" {
 #endif
 
-#if DMON_OS_LINUX
 DMON_API_DECL bool dmon_watch_add(dmon_watch_id id, const char* subdir);
 DMON_API_DECL bool dmon_watch_rm(dmon_watch_id id, const char* watchdir);
-#endif  // DMON_OS_LINUX|
 
 #ifdef __cplusplus
 }
