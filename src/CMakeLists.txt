@@ -11,6 +11,13 @@ target_include_directories(
         "$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}>"
         "$<INSTALL_INTERFACE:include>"
 )
+
+if (APPLE)
+    find_library(CORE_FOUNDATION CoreFoundation REQUIRED)
+    find_library(CORE_SERVICES CoreServices REQUIRED)
+    target_link_libraries("${LIBRARY_NAME}" INTERFACE "${CORE_FOUNDATION}" "${CORE_SERVICES}")
+endif (APPLE)
+
 set_target_properties(
         "${LIBRARY_NAME}"
         PROPERTIES
