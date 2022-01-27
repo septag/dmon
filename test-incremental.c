@@ -2,7 +2,9 @@
 
 #define DMON_IMPL
 #include "dmon.h"
+#if defined(__linux__) || defined(linux) || defined(__linux)
 #include "dmon_extra.h"
+#endif /* defined(__linux__) || defined(linux) || defined(__linux) */
 
 static void watch_callback(dmon_watch_id watch_id, dmon_action action, const char* rootdir,
                            const char* filepath, const char* oldfilepath, void* user)
@@ -39,19 +41,28 @@ static int prompt_command_loop(dmon_watch_id watch_id)
         }
         *newline = 0;
         if (strncmp(cmd, "add ", 4) == 0) {
+#if defined(__linux__) || defined(linux) || defined(__linux)
             char *subdir = cmd + 4;
             if (!dmon_watch_add(watch_id, subdir)) {
                 fprintf(stdout, "cannot add directory %s\n", subdir);
             } else {
                 fprintf(stdout, "added directory %s\n", subdir);
             }
+#else
+            fputs("dmon_watch_add not implemented for this OS", stderr);
+#endif
+
         } else if (strncmp(cmd, "remove ", 7) == 0) {
+#if defined(__linux__) || defined(linux) || defined(__linux)
             char *subdir = cmd + 7;
             if (!dmon_watch_rm(watch_id, subdir)) {
                 fprintf(stdout, "cannot remove directory %s\n", subdir);
             } else {
                 fprintf(stdout, "removed directory %s\n", subdir);
             }
+#else
+            fputs("dmon_watch_rm not implemented for this OS", stderr);
+#endif
         } else if (strcmp(cmd, "exit") == 0) {
             return 0;
         } else {

@@ -1,6 +1,12 @@
 set(LIBRARY_NAME "dmon")
 
-set(Header_Files "../dmon.h" "../dmon_extra.h")
+set(Header_Files "../dmon.h")
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    option(BUILD_DMON_EXTRA "Build dmon extra" ON)
+    list(APPEND Header_Files "../dmon_extra.h")
+endif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+
 source_group("Header Files" FILES "${Header_Files}")
 
 add_library("${LIBRARY_NAME}" INTERFACE "${Header_Files}")
