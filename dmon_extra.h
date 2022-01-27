@@ -47,6 +47,8 @@ DMON_API_IMPL bool dmon_watch_add(dmon_watch_id id, const char* watchdir)
 
     dmon__watch_state* watch = &_dmon.watches[id.id - 1];
 
+    int dirlen, i, c;
+
     // check if the directory exists
     // if watchdir contains absolute/root-included path, try to strip the rootdir from it
     // else, we assume that watchdir is correct, so save it as it is
@@ -70,14 +72,14 @@ DMON_API_IMPL bool dmon_watch_add(dmon_watch_id id, const char* watchdir)
         dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir);
     }
 
-    int dirlen = (int)strlen(subdir.rootdir);
+    dirlen = (int)strlen(subdir.rootdir);
     if (subdir.rootdir[dirlen - 1] != '/') {
         subdir.rootdir[dirlen] = '/';
         subdir.rootdir[dirlen + 1] = '\0';
     }
 
     // check that the directory is not already added
-    for (int i = 0, c = stb_sb_count(watch->subdirs); i < c; i++) {
+    for (i = 0, c = stb_sb_count(watch->subdirs); i < c; i++) {
         if (strcmp(subdir.rootdir, watch->subdirs[i].rootdir) == 0) {
             _DMON_LOG_ERRORF("Error watching directory '%s', because it is already added.", watchdir);
             if (!skip_lock) 

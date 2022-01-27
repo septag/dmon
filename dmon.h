@@ -414,7 +414,8 @@ _DMON_PRIVATE void dmon__unwatch(dmon__watch_state* watch)
 
 _DMON_PRIVATE void dmon__win32_process_events(void)
 {
-    for (int i = 0, c = stb_sb_count(_dmon.events); i < c; i++) {
+    int i;
+    for (i = 0, c = stb_sb_count(_dmon.events); i < c; i++) {
         dmon__win32_event* ev = &_dmon.events[i];
         if (ev->skip) {
             continue;
@@ -422,7 +423,8 @@ _DMON_PRIVATE void dmon__win32_process_events(void)
 
         if (ev->action == FILE_ACTION_MODIFIED || ev->action == FILE_ACTION_ADDED) {
             // remove duplicate modifies on a single file
-            for (int j = i + 1; j < c; j++) {
+            int j;
+            for (j = i + 1; j < c; j++) {
                 dmon__win32_event* check_ev = &_dmon.events[j];
                 if (check_ev->action == FILE_ACTION_MODIFIED &&
                     strcmp(ev->filepath, check_ev->filepath) == 0) {
@@ -433,7 +435,7 @@ _DMON_PRIVATE void dmon__win32_process_events(void)
     }
 
     // trigger user callbacks
-    for (int i = 0, c = stb_sb_count(_dmon.events); i < c; i++) {
+    for (i = 0, c = stb_sb_count(_dmon.events); i < c; i++) {
         dmon__win32_event* ev = &_dmon.events[i];
         if (ev->skip) {
             continue;
@@ -456,7 +458,8 @@ _DMON_PRIVATE void dmon__win32_process_events(void)
         case FILE_ACTION_RENAMED_OLD_NAME: {
             // find the first occurance of the NEW_NAME
             // this is somewhat API flaw that we have no reference for relating old and new files
-            for (int j = i + 1; j < c; j++) {
+            int j;
+            for (j = i + 1; j < c; j++) {
                 dmon__win32_event* check_ev = &_dmon.events[j];
                 if (check_ev->action == FILE_ACTION_RENAMED_NEW_NAME) {
                     watch->watch_cb(check_ev->watch_id, DMON_ACTION_MOVE, watch->rootdir,
@@ -484,6 +487,7 @@ _DMON_PRIVATE DWORD WINAPI dmon__thread(LPVOID arg)
     uint64_t msecs_elapsed = 0;
 
     while (!_dmon.quit) {
+        int i;
         if (_dmon.modify_watches || !TryEnterCriticalSection(&_dmon.mutex)) {
             Sleep(10);
             continue;
@@ -495,7 +499,7 @@ _DMON_PRIVATE DWORD WINAPI dmon__thread(LPVOID arg)
             continue;
         }
 
-        for (int i = 0; i < _dmon.num_watches; i++) {
+        for (i = 0; i < _dmon.num_watches; i++) {
             dmon__watch_state* watch = &_dmon.watches[i];
             wait_handles[i] = watch->overlapped.hEvent;
         }
@@ -583,8 +587,11 @@ DMON_API_IMPL void dmon_deinit(void)
         CloseHandle(_dmon.thread_handle);
     }
 
-    for (int i = 0; i < _dmon.num_watches; i++) {
-        dmon__unwatch(&_dmon.watches[i]);
+    {
+        int i;
+        for (i = 0; i < _dmon.num_watches; i++) {
+            dmon__unwatch(&_dmon.watches[i]);
+        }
     }
 
     DeleteCriticalSection(&_dmon.mutex);
@@ -768,7 +775,8 @@ _DMON_PRIVATE void dmon__watch_recursive(const char* dirname, int fd, uint32_t m
 _DMON_PRIVATE const char* dmon__find_subdir(const dmon__watch_state* watch, int wd)
 {
     const int* wds = watch->wds;
-    for (int i = 0, c = stb_sb_count(wds); i < c; i++) {
+    int i, c;
+    for (i = 0, c = stb_sb_count(wds); i < c; i++) {
         if (wd == wds[i]) {
             return watch->subdirs[i].rootdir;
         }
@@ -812,7 +820,8 @@ _DMON_PRIVATE void dmon__gather_recursive(dmon__watch_state* watch, const char* 
 
 _DMON_PRIVATE void dmon__inotify_process_events(void)
 {
-    for (int i = 0, c = stb_sb_count(_dmon.events); i < c; i++) {
+    int i, c;
+    for (i = 0, c = stb_sb_count(_dmon.events); i < c; i++) {
         dmon__inotify_event* ev = &_dmon.events[i];
         if (ev->skip) {
             continue;
@@ -820,7 +829,8 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
 
         // remove redundant modify events on a single file
         if (ev->mask & IN_MODIFY) {
-            for (int j = i + 1; j < c; j++) {
+            int j;
+            for (j = i + 1; j < c; j++) {
                 dmon__inotify_event* check_ev = &_dmon.events[j];
                 if ((check_ev->mask & IN_MODIFY) && strcmp(ev->filepath, check_ev->filepath) == 0) {
                     ev->skip = true;
@@ -840,14 +850,16 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
                 }
             }
         } else if (ev->mask & IN_CREATE) {
+            int j;
             bool loop_break = false;
-            for (int j = i + 1; j < c && !loop_break; j++) {
+            for (j = i + 1; j < c && !loop_break; j++) {
                 dmon__inotify_event* check_ev = &_dmon.events[j];
                 if ((check_ev->mask & IN_MOVED_FROM) && strcmp(ev->filepath, check_ev->filepath) == 0) {
                     // there is a case where some programs (like gedit):
                     // when we save, it creates a temp file, and moves it to the file being modified
                     // search for these cases and remove all of them
-                    for (int k = j + 1; k < c; k++) {
+                    int k;
+                    for (k = j + 1; k < c; k++) {
                         dmon__inotify_event* third_ev = &_dmon.events[k];
                         if (third_ev->mask & IN_MOVED_TO && check_ev->cookie == third_ev->cookie) {
                             third_ev->mask = IN_MODIFY;    // change to modified
@@ -864,7 +876,8 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
             }
         } else if (ev->mask & IN_MOVED_FROM) {
             bool move_valid = false;
-            for (int j = i + 1; j < c; j++) {
+            int j;
+            for (j = i + 1; j < c; j++) {
                 dmon__inotify_event* check_ev = &_dmon.events[j];
                 if (check_ev->mask & IN_MOVED_TO && ev->cookie == check_ev->cookie) {
                     move_valid = true;
@@ -880,7 +893,8 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
             }
         } else if (ev->mask & IN_MOVED_TO) {
             bool move_valid = false;
-            for (int j = 0; j < i; j++) {
+            int j;
+            for (j = 0; j < i; j++) {
                 dmon__inotify_event* check_ev = &_dmon.events[j];
                 if (check_ev->mask & IN_MOVED_FROM && ev->cookie == check_ev->cookie) {
                     move_valid = true;
@@ -895,7 +909,8 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
                 ev->mask = IN_CREATE;
             }
         } else if (ev->mask & IN_DELETE) {
-            for (int j = i + 1; j < c; j++) {
+            int j;
+            for (j = i + 1; j < c; j++) {
                 dmon__inotify_event* check_ev = &_dmon.events[j];
                 // if the file is DELETED and then MODIFIED after, just ignore the modify event
                 if ((check_ev->mask & IN_MODIFY) && strcmp(ev->filepath, check_ev->filepath) == 0) {
@@ -907,7 +922,7 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
     }
 
     // trigger user callbacks
-    for (int i = 0; i < stb_sb_count(_dmon.events); i++) {
+    for (i = 0; i < stb_sb_count(_dmon.events); i++) {
         dmon__inotify_event* ev = &_dmon.events[i];
         if (ev->skip) {
             continue;
@@ -951,7 +966,8 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
             watch->watch_cb(ev->watch_id, DMON_ACTION_MODIFY, watch->rootdir, ev->filepath, NULL, watch->user_data);
         }
         else if (ev->mask & IN_MOVED_FROM) {
-            for (int j = i + 1; j < stb_sb_count(_dmon.events); j++) {
+            int j;
+            for (j = i + 1; j < stb_sb_count(_dmon.events); j++) {
                 dmon__inotify_event* check_ev = &_dmon.events[j];
                 if (check_ev->mask & IN_MOVED_TO && ev->cookie == check_ev->cookie) {
                     watch->watch_cb(check_ev->watch_id, DMON_ACTION_MOVE, watch->rootdir,
@@ -990,15 +1006,19 @@ static void* dmon__thread(void* arg)
         // Create read FD set
         fd_set rfds;
         FD_ZERO(&rfds);
-        for (int i = 0; i < _dmon.num_watches; i++) {
-            dmon__watch_state* watch = &_dmon.watches[i];
-            FD_SET(watch->fd, &rfds);
+        {
+            int i;
+            for (i = 0; i < _dmon.num_watches; i++) {
+                dmon__watch_state* watch = &_dmon.watches[i];
+                FD_SET(watch->fd, &rfds);
+            }
         }
 
         timeout.tv_sec = 0;
         timeout.tv_usec = 100000;
         if (select(FD_SETSIZE, &rfds, NULL, NULL, &timeout)) {
-            for (int i = 0; i < _dmon.num_watches; i++) {
+            int i;
+            for (i = 0; i < _dmon.num_watches; i++) {
                 dmon__watch_state* watch = &_dmon.watches[i];
                 if (FD_ISSET(watch->fd, &rfds)) {
                     ssize_t offset = 0;
@@ -1072,8 +1092,11 @@ DMON_API_IMPL void dmon_deinit(void)
     _dmon.quit = true;
     pthread_join(_dmon.thread_handle, NULL);
 
-    for (int i = 0; i < _dmon.num_watches; i++) {
-        dmon__unwatch(&_dmon.watches[i]);
+    {
+        int i;
+        for (i = 0; i < _dmon.num_watches; i++) {
+            dmon__unwatch(&_dmon.watches[i]);
+        }
     }
 
     pthread_mutex_destroy(&_dmon.mutex);
