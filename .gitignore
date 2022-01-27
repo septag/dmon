@@ -70,3 +70,10 @@ temp
 *.vso
 *.pyc
 *.obj
+
+# IDEs
+.idea
+.vscode
+
+# Build dir
+*build*
