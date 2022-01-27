@@ -299,10 +299,10 @@ _DMON_PRIVATE char* dmon__strcpy(char* dst, int dst_sz, const char* src)
 
 _DMON_PRIVATE char* dmon__unixpath(char* dst, int size, const char* path)
 {
-    size_t len = strlen(path);
+    size_t len = strlen(path), i;
     len = dmon__min(len, (size_t)size - 1);
 
-    for (size_t i = 0; i < len; i++) {
+    for (i = 0; i < len; i++) {
         if (path[i] != '\\')
             dst[i] = path[i];
         else
@@ -1247,7 +1247,8 @@ _DMON_PRIVATE void* dmon__cf_realloc(void* ptr, CFIndex newsize, CFOptionFlags h
 
 _DMON_PRIVATE void dmon__fsevent_process_events(void)
 {
-    for (int i = 0, c = stb_sb_count(_dmon.events); i < c; i++) {
+    int i, c;
+    for (i = 0, c = stb_sb_count(_dmon.events); i < c; i++) {
         dmon__fsevent_event* ev = &_dmon.events[i];
         if (ev->skip) {
             continue;
@@ -1255,7 +1256,8 @@ _DMON_PRIVATE void dmon__fsevent_process_events(void)
 
         // remove redundant modify events on a single file
         if (ev->event_flags & kFSEventStreamEventFlagItemModified) {
-            for (int j = i + 1; j < c; j++) {
+            int j;
+            for (j = i + 1; j < c; j++) {
                 dmon__fsevent_event* check_ev = &_dmon.events[j];
                 if ((check_ev->event_flags & kFSEventStreamEventFlagItemModified) &&
                     strcmp(ev->filepath, check_ev->filepath) == 0) {
@@ -1264,7 +1266,8 @@ _DMON_PRIVATE void dmon__fsevent_process_events(void)
                 }
             }
         } else if ((ev->event_flags & kFSEventStreamEventFlagItemRenamed) && !ev->move_valid) {
-            for (int j = i + 1; j < c; j++) {
+            int j;
+            for (j = i + 1; j < c; j++) {
                 dmon__fsevent_event* check_ev = &_dmon.events[j];
                 if ((check_ev->event_flags & kFSEventStreamEventFlagItemRenamed) &&
                     check_ev->event_id == (ev->event_id + 1)) {
@@ -1296,7 +1299,7 @@ _DMON_PRIVATE void dmon__fsevent_process_events(void)
     }
 
     // trigger user callbacks
-    for (int i = 0, c = stb_sb_count(_dmon.events); i < c; i++) {
+    for (i = 0, c = stb_sb_count(_dmon.events); i < c; i++) {
         dmon__fsevent_event* ev = &_dmon.events[i];
         if (ev->skip) {
             continue;
@@ -1314,7 +1317,8 @@ _DMON_PRIVATE void dmon__fsevent_process_events(void)
             watch->watch_cb(ev->watch_id, DMON_ACTION_MODIFY, watch->rootdir_unmod, ev->filepath, NULL,
                             watch->user_data);
         } else if (ev->event_flags & kFSEventStreamEventFlagItemRenamed) {
-            for (int j = i + 1; j < c; j++) {
+            int j;
+            for (j = i + 1; j < c; j++) {
                 dmon__fsevent_event* check_ev = &_dmon.events[j];
                 if (check_ev->event_flags & kFSEventStreamEventFlagItemRenamed) {
                     watch->watch_cb(check_ev->watch_id, DMON_ACTION_MOVE, watch->rootdir_unmod,
@@ -1342,6 +1346,7 @@ static void* dmon__thread(void* arg)
     dispatch_semaphore_signal(_dmon.thread_sem);
 
     while (!_dmon.quit) {
+        int i;
         if (_dmon.modify_watches || pthread_mutex_trylock(&_dmon.mutex) != 0) {
             nanosleep(&req, &rem);
             continue;
@@ -1353,7 +1358,7 @@ static void* dmon__thread(void* arg)
             continue;
         }
 
-        for (int i = 0; i < _dmon.num_watches; i++) {
+        for (i = 0; i < _dmon.num_watches; i++) {
             dmon__watch_state* watch = &_dmon.watches[i];
             if (!watch->init) {
                 DMON_ASSERT(watch->fsev_stream_ref);
@@ -1420,8 +1425,11 @@ DMON_API_IMPL void dmon_deinit(void)
 
     dispatch_release(_dmon.thread_sem);
 
-    for (int i = 0; i < _dmon.num_watches; i++) {
-        dmon__unwatch(&_dmon.watches[i]);
+    {
+        int i;
+        for (i = 0; i < _dmon.num_watches; i++) {
+            dmon__unwatch(&_dmon.watches[i]);
+        }
     }
 
     pthread_mutex_destroy(&_dmon.mutex);
@@ -1448,27 +1456,30 @@ _DMON_PRIVATE void dmon__fsevent_callback(ConstFSEventStreamRef stream_ref, void
     char abs_filepath[DMON_MAX_PATH];
     char abs_filepath_lower[DMON_MAX_PATH];
 
-    for (size_t i = 0; i < num_events; i++) {
-        const char* filepath = ((const char**)event_paths)[i];
-        long flags = (long)event_flags[i];
-        uint64_t event_id = (uint64_t)event_ids[i];
-        dmon__fsevent_event ev;
-        memset(&ev, 0x0, sizeof(ev));
+    {
+        size_t i;
+        for (i = 0; i < num_events; i++) {
+            const char *filepath = ((const char **) event_paths)[i];
+            long flags = (long) event_flags[i];
+            uint64_t event_id = (uint64_t) event_ids[i];
+            dmon__fsevent_event ev;
+            memset(&ev, 0x0, sizeof(ev));
 
-        dmon__strcpy(abs_filepath, sizeof(abs_filepath), filepath);
-        dmon__unixpath(abs_filepath, sizeof(abs_filepath), abs_filepath);
+            dmon__strcpy(abs_filepath, sizeof(abs_filepath), filepath);
+            dmon__unixpath(abs_filepath, sizeof(abs_filepath), abs_filepath);
 
-        // normalize path, so it would be the same on both MacOS file-system types (case/nocase)
-        dmon__tolower(abs_filepath_lower, sizeof(abs_filepath), abs_filepath);
-        DMON_ASSERT(strstr(abs_filepath_lower, watch->rootdir) == abs_filepath_lower);
+            // normalize path, so it would be the same on both MacOS file-system types (case/nocase)
+            dmon__tolower(abs_filepath_lower, sizeof(abs_filepath), abs_filepath);
+            DMON_ASSERT(strstr(abs_filepath_lower, watch->rootdir) == abs_filepath_lower);
 
-        // strip the root dir from the begining
-        dmon__strcpy(ev.filepath, sizeof(ev.filepath), abs_filepath + strlen(watch->rootdir));
+            // strip the root dir from the begining
+            dmon__strcpy(ev.filepath, sizeof(ev.filepath), abs_filepath + strlen(watch->rootdir));
 
-        ev.event_flags = flags;
-        ev.event_id = event_id;
-        ev.watch_id = watch_id;
-        stb_sb_push(_dmon.events, ev);
+            ev.event_flags = flags;
+            ev.event_id = event_id;
+            ev.watch_id = watch_id;
+            stb_sb_push(_dmon.events, ev);
+        }
     }
 }
 
