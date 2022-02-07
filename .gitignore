@@ -70,6 +70,7 @@ temp
 *.vso
 *.pyc
 *.obj
+*.pdb
 
 # IDEs
 .idea
