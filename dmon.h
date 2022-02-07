@@ -414,7 +414,7 @@ _DMON_PRIVATE void dmon__unwatch(dmon__watch_state* watch)
 
 _DMON_PRIVATE void dmon__win32_process_events(void)
 {
-    int i;
+    int i, c;
     for (i = 0, c = stb_sb_count(_dmon.events); i < c; i++) {
         dmon__win32_event* ev = &_dmon.events[i];
         if (ev->skip) {
