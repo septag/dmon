@@ -1,6 +1,8 @@
 #ifndef __DMON_H__
 #define __DMON_H__
 
+#define DMON_IMPL
+
 //
 // Copyright 2023 Sepehr Taghdisian (septag@github). All rights reserved.
 // License: https://github.com/septag/dmon#license-bsd-2-clause
@@ -240,8 +242,8 @@ DMON_API_DECL void dmon_unwatch(dmon_watch_id id);
 #   define _dmon_max(a, b) ((a) > (b) ? (a) : (b))
 #endif
 
-#ifndef dmon__swap
-#   define dmon__swap(a, b, _type)  \
+#ifndef _dmon_swap
+#   define _dmon_swap(a, b, _type)  \
         do {                        \
             _type tmp = a;          \
             a = b;                  \
@@ -387,7 +389,8 @@ typedef struct dmon__watch_state {
 
 typedef struct dmon__state {
     int num_watches;
-    dmon__watch_state watches[DMON_MAX_WATCHES];
+    dmon__watch_state* watches[DMON_MAX_WATCHES];
+	int freelist[DMON_MAX_WATCHES];
     HANDLE thread_handle;
     CRITICAL_SECTION mutex;
     volatile LONG modify_watches;
@@ -410,7 +413,6 @@ _DMON_PRIVATE void _dmon_unwatch(dmon__watch_state* watch)
     CancelIo(watch->dir_handle);
     CloseHandle(watch->overlapped.hEvent);
     CloseHandle(watch->dir_handle);
-    memset(watch, 0x0, sizeof(dmon__watch_state));
 }
 
 _DMON_PRIVATE void _dmon_win32_process_events(void)
@@ -441,7 +443,7 @@ _DMON_PRIVATE void _dmon_win32_process_events(void)
         if (ev->skip) {
             continue;
         }
-        dmon__watch_state* watch = &_dmon.watches[ev->watch_id.id - 1];
+        dmon__watch_state* watch = _dmon.watches[ev->watch_id.id - 1];
 
         if(watch == NULL || watch->watch_cb == NULL) {
             continue;
@@ -482,6 +484,7 @@ _DMON_PRIVATE DWORD WINAPI _dmon_thread(LPVOID arg)
 {
     _DMON_UNUSED(arg);
     HANDLE wait_handles[DMON_MAX_WATCHES];
+    dmon__watch_state* watch_states[DMON_MAX_WATCHES];
 
     SYSTEMTIME starttm;
     GetSystemTime(&starttm);
@@ -500,15 +503,18 @@ _DMON_PRIVATE DWORD WINAPI _dmon_thread(LPVOID arg)
             continue;
         }
 
-        for (i = 0; i < _dmon.num_watches; i++) {
-            dmon__watch_state* watch = &_dmon.watches[i];
-            wait_handles[i] = watch->overlapped.hEvent;
+        for (i = 0; i < DMON_MAX_WATCHES; i++) {
+            if (_dmon.watches[i]) {
+                dmon__watch_state* watch = _dmon.watches[i];
+                watch_states[i] = watch;
+                wait_handles[i] = watch->overlapped.hEvent;
+            }
         }
 
         DWORD wait_result = WaitForMultipleObjects(_dmon.num_watches, wait_handles, FALSE, 10);
         DMON_ASSERT(wait_result != WAIT_FAILED);
         if (wait_result != WAIT_TIMEOUT) {
-            dmon__watch_state* watch = &_dmon.watches[wait_result - WAIT_OBJECT_0];
+            dmon__watch_state* watch = watch_states[wait_result - WAIT_OBJECT_0];
             DMON_ASSERT(HasOverlappedIoCompleted(&watch->overlapped));
 
             DWORD bytes;
@@ -552,8 +558,7 @@ _DMON_PRIVATE DWORD WINAPI _dmon_thread(LPVOID arg)
 
         SYSTEMTIME tm;
         GetSystemTime(&tm);
-        LONG dt =
-            (tm.wSecond - starttm.wSecond) * 1000 + (tm.wMilliseconds - starttm.wMilliseconds);
+        LONG dt =(tm.wSecond - starttm.wSecond) * 1000 + (tm.wMilliseconds - starttm.wMilliseconds);
         starttm = tm;
         msecs_elapsed += dt;
         if (msecs_elapsed > 100 && stb_sb_count(_dmon.events) > 0) {
@@ -572,9 +577,12 @@ DMON_API_IMPL void dmon_init(void)
     DMON_ASSERT(!_dmon_init);
     InitializeCriticalSection(&_dmon.mutex);
 
-    _dmon.thread_handle =
-        CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)_dmon_thread, NULL, 0, NULL);
+    _dmon.thread_handle = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)_dmon_thread, NULL, 0, NULL);
     DMON_ASSERT(_dmon.thread_handle);
+
+	for (int i = 0; i < DMON_MAX_WATCHES; i++)
+        _dmon.freelist[i] = DMON_MAX_WATCHES - i - 1;
+
     _dmon_init = true;
 }
 
@@ -590,8 +598,9 @@ DMON_API_IMPL void dmon_deinit(void)
 
     {
         int i;
-        for (i = 0; i < _dmon.num_watches; i++) {
-            _dmon_unwatch(&_dmon.watches[i]);
+        for (i = 0; i < DMON_MAX_WATCHES; i++) {
+            if (_dmon.watches[i])
+                _dmon_unwatch(_dmon.watches[i]);
         }
     }
 
@@ -606,6 +615,7 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
                                                         const char* oldname, void* user),
                                        uint32_t flags, void* user_data)
 {
+	DMON_ASSERT(_dmon_init);
     DMON_ASSERT(watch_cb);
     DMON_ASSERT(rootdir && rootdir[0]);
 
@@ -613,9 +623,32 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
     EnterCriticalSection(&_dmon.mutex);
 
     DMON_ASSERT(_dmon.num_watches < DMON_MAX_WATCHES);
+    if (_dmon.num_watches >= DMON_MAX_WATCHES) {
+        DMON_LOG_ERROR("Exceeding maximum number of watches");
+        LeaveCriticalSection(&_dmon.mutex);
+        _InterlockedExchange(&_dmon.modify_watches, 0);
+        return _dmon_make_id(0);
+    }
 
-    uint32_t id = ++_dmon.num_watches;
-    dmon__watch_state* watch = &_dmon.watches[id - 1];
+    int num_freelist = DMON_MAX_WATCHES - _dmon.num_watches;
+    int index = _dmon.freelist[num_freelist - 1];
+    uint32_t id = (uint32_t)(index + 1);
+
+    if (_dmon.watches[index] == NULL) {
+        dmon__watch_state* state =  (dmon__watch_state*)DMON_MALLOC(sizeof(dmon__watch_state));
+        DMON_ASSERT(state);
+        if (state == NULL) {
+            LeaveCriticalSection(&_dmon.mutex);
+            _InterlockedExchange(&_dmon.modify_watches, 0);
+            return _dmon_make_id(0);
+        }
+        memset(state, 0x0, sizeof(dmon__watch_state));
+        _dmon.watches[index] = state;
+    }
+
+    ++_dmon.num_watches;
+
+    dmon__watch_state* watch = _dmon.watches[index];
     watch->id = _dmon_make_id(id);
     watch->watch_flags = flags;
     watch->watch_cb = watch_cb;
@@ -661,22 +694,28 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
 
 DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
 {
+	DMON_ASSERT(_dmon_init);
     DMON_ASSERT(id.id > 0);
-
-    _InterlockedExchange(&_dmon.modify_watches, 1);
-    EnterCriticalSection(&_dmon.mutex);
-
     int index = id.id - 1;
-    DMON_ASSERT(index < _dmon.num_watches);
+    DMON_ASSERT(index < DMON_MAX_WATCHES);
+    DMON_ASSERT(_dmon.watches[index]);
+    DMON_ASSERT(_dmon.num_watches > 0);
 
-    _dmon_unwatch(&_dmon.watches[index]);
-    if (index != _dmon.num_watches - 1) {
-        dmon__swap(_dmon.watches[index], _dmon.watches[_dmon.num_watches - 1], dmon__watch_state);
+    if (_dmon.watches[index]) {
+        _InterlockedExchange(&_dmon.modify_watches, 1);
+        EnterCriticalSection(&_dmon.mutex);
+
+        _dmon_unwatch(_dmon.watches[index]);
+        DMON_FREE(_dmon.watches[index]);
+        _dmon.watches[index] = NULL;
+
+        --_dmon.num_watches;
+        int num_freelist = DMON_MAX_WATCHES - _dmon.num_watches;
+        _dmon.freelist[num_freelist - 1] = index;
+
+        LeaveCriticalSection(&_dmon.mutex);
+        _InterlockedExchange(&_dmon.modify_watches, 0);
     }
-    --_dmon.num_watches;
-
-    LeaveCriticalSection(&_dmon.mutex);
-    _InterlockedExchange(&_dmon.modify_watches, 0);
 }
 
 #elif DMON_OS_LINUX
@@ -1200,7 +1239,7 @@ DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
 
     _dmon_unwatch(&_dmon.watches[index]);
     if (index != _dmon.num_watches - 1) {
-        dmon__swap(_dmon.watches[index], _dmon.watches[_dmon.num_watches - 1], dmon__watch_state);
+        _dmon_swap(_dmon.watches[index], _dmon.watches[_dmon.num_watches - 1], dmon__watch_state);
     }
     --_dmon.num_watches;
 
@@ -1609,7 +1648,7 @@ DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
 
     _dmon_unwatch(&_dmon.watches[index]);
     if (index != _dmon.num_watches - 1) {
-        dmon__swap(_dmon.watches[index], _dmon.watches[_dmon.num_watches - 1], dmon__watch_state);
+        _dmon_swap(_dmon.watches[index], _dmon.watches[_dmon.num_watches - 1], dmon__watch_state);
     }
     --_dmon.num_watches;
 
