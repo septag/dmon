@@ -2,7 +2,7 @@
 #define __DMON_H__
 
 //
-// Copyright 2021 Sepehr Taghdisian (septag@github). All rights reserved.
+// Copyright 2023 Sepehr Taghdisian (septag@github). All rights reserved.
 // License: https://github.com/septag/dmon#license-bsd-2-clause
 //
 //  Portable directory monitoring library
@@ -73,6 +73,7 @@
 //      1.1.3       Fixed select not resetting causing high cpu usage on linux
 //      1.2.1       inotify (linux) fixes and improvements, added extra functionality header for linux
 //                  to manually add/remove directories manually to the watch handle, in case of large file sets
+//		1.2.2		Name refactoring
 //
 
 #include <stdbool.h>
@@ -231,12 +232,12 @@ DMON_API_DECL void dmon_unwatch(dmon_watch_id id);
 #   define _DMON_LOG_DEBUGF(str, ...) do { char msg[512]; snprintf(msg, sizeof(msg), str, __VA_ARGS__); DMON_LOG_DEBUG(msg); } while(0);
 #endif
 
-#ifndef dmon__min
-#   define dmon__min(a, b) ((a) < (b) ? (a) : (b))
+#ifndef _dmon_min
+#   define _dmon_min(a, b) ((a) < (b) ? (a) : (b))
 #endif
 
-#ifndef dmon__max
-#   define dmon__max(a, b) ((a) > (b) ? (a) : (b))
+#ifndef _dmon_max
+#   define _dmon_max(a, b) ((a) > (b) ? (a) : (b))
 #endif
 
 #ifndef dmon__swap
@@ -248,42 +249,42 @@ DMON_API_DECL void dmon_unwatch(dmon_watch_id id);
         } while (0)
 #endif
 
-#ifndef dmon__make_id
+#ifndef _dmon_make_id
 #   ifdef __cplusplus
-#       define dmon__make_id(id)    {id}
+#       define _dmon_make_id(id)    {id}
 #   else
-#       define dmon__make_id(id)    (dmon_watch_id) {id}
+#       define _dmon_make_id(id)    (dmon_watch_id) {id}
 #   endif
-#endif  // dmon__make_id
+#endif  // _dmon_make_id
 
-_DMON_PRIVATE bool dmon__isrange(char ch, char from, char to)
+_DMON_PRIVATE bool _dmon_isrange(char ch, char from, char to)
 {
     return (uint8_t)(ch - from) <= (uint8_t)(to - from);
 }
 
-_DMON_PRIVATE bool dmon__isupperchar(char ch)
+_DMON_PRIVATE bool _dmon_isupperchar(char ch)
 {
-    return dmon__isrange(ch, 'A', 'Z');
+    return _dmon_isrange(ch, 'A', 'Z');
 }
 
-_DMON_PRIVATE char dmon__tolowerchar(char ch)
+_DMON_PRIVATE char _dmon_tolowerchar(char ch)
 {
-    return ch + (dmon__isupperchar(ch) ? 0x20 : 0);
+    return ch + (_dmon_isupperchar(ch) ? 0x20 : 0);
 }
 
-_DMON_PRIVATE char* dmon__tolower(char* dst, int dst_sz, const char* str)
+_DMON_PRIVATE char* _dmon_tolower(char* dst, int dst_sz, const char* str)
 {
     int offset = 0;
     int dst_max = dst_sz - 1;
     while (*str && offset < dst_max) {
-        dst[offset++] = dmon__tolowerchar(*str);
+        dst[offset++] = _dmon_tolowerchar(*str);
         ++str;
     }
     dst[offset] = '\0';
     return dst;
 }
 
-_DMON_PRIVATE char* dmon__strcpy(char* dst, int dst_sz, const char* src)
+_DMON_PRIVATE char* _dmon_strcpy(char* dst, int dst_sz, const char* src)
 {
     DMON_ASSERT(dst);
     DMON_ASSERT(src);
@@ -297,10 +298,10 @@ _DMON_PRIVATE char* dmon__strcpy(char* dst, int dst_sz, const char* src)
     return dst;
 }
 
-_DMON_PRIVATE char* dmon__unixpath(char* dst, int size, const char* path)
+_DMON_PRIVATE char* _dmon_unixpath(char* dst, int size, const char* path)
 {
     size_t len = strlen(path), i;
-    len = dmon__min(len, (size_t)size - 1);
+    len = _dmon_min(len, (size_t)size - 1);
 
     for (i = 0; i < len; i++) {
         if (path[i] != '\\')
@@ -313,10 +314,10 @@ _DMON_PRIVATE char* dmon__unixpath(char* dst, int size, const char* path)
 }
 
 #if DMON_OS_LINUX || DMON_OS_MACOS
-_DMON_PRIVATE char* dmon__strcat(char* dst, int dst_sz, const char* src)
+_DMON_PRIVATE char* _dmon_strcat(char* dst, int dst_sz, const char* src)
 {
     int len = (int)strlen(dst);
-    return dmon__strcpy(dst + len, dst_sz - len, src);
+    return _dmon_strcpy(dst + len, dst_sz - len, src);
 }
 #endif // DMON_OS_LINUX || DMON_OS_MACOS
 
@@ -354,7 +355,7 @@ static void * stb__sbgrowf(void *arr, int increment, int itemsize)
 }
 
 // watcher callback (same as dmon.h's decleration)
-typedef void (dmon__watch_cb)(dmon_watch_id, dmon_action, const char*, const char*, const char*, void*);
+typedef void (_dmon_watch_cb)(dmon_watch_id, dmon_action, const char*, const char*, const char*, void*);
 
 #if DMON_OS_WINDOWS
 // IOCP (windows)
@@ -377,7 +378,7 @@ typedef struct dmon__watch_state {
     HANDLE dir_handle;
     uint8_t buffer[64512]; // http://msdn.microsoft.com/en-us/library/windows/desktop/aa365465(v=vs.85).aspx
     DWORD notify_filter;
-    dmon__watch_cb* watch_cb;
+    _dmon_watch_cb* watch_cb;
     uint32_t watch_flags;
     void* user_data;
     char rootdir[DMON_MAX_PATH];
@@ -397,14 +398,14 @@ typedef struct dmon__state {
 static bool _dmon_init;
 static dmon__state _dmon;
 
-_DMON_PRIVATE bool dmon__refresh_watch(dmon__watch_state* watch)
+_DMON_PRIVATE bool _dmon_refresh_watch(dmon__watch_state* watch)
 {
     return ReadDirectoryChangesW(watch->dir_handle, watch->buffer, sizeof(watch->buffer),
                                  (watch->watch_flags & DMON_WATCHFLAGS_RECURSIVE) ? TRUE : FALSE,
                                  watch->notify_filter, NULL, &watch->overlapped, NULL) != 0;
 }
 
-_DMON_PRIVATE void dmon__unwatch(dmon__watch_state* watch)
+_DMON_PRIVATE void _dmon_unwatch(dmon__watch_state* watch)
 {
     CancelIo(watch->dir_handle);
     CloseHandle(watch->overlapped.hEvent);
@@ -412,7 +413,7 @@ _DMON_PRIVATE void dmon__unwatch(dmon__watch_state* watch)
     memset(watch, 0x0, sizeof(dmon__watch_state));
 }
 
-_DMON_PRIVATE void dmon__win32_process_events(void)
+_DMON_PRIVATE void _dmon_win32_process_events(void)
 {
     int i, c;
     for (i = 0, c = stb_sb_count(_dmon.events); i < c; i++) {
@@ -477,7 +478,7 @@ _DMON_PRIVATE void dmon__win32_process_events(void)
     stb_sb_reset(_dmon.events);
 }
 
-_DMON_PRIVATE DWORD WINAPI dmon__thread(LPVOID arg)
+_DMON_PRIVATE DWORD WINAPI _dmon_thread(LPVOID arg)
 {
     _DMON_UNUSED(arg);
     HANDLE wait_handles[DMON_MAX_WATCHES];
@@ -517,7 +518,7 @@ _DMON_PRIVATE DWORD WINAPI dmon__thread(LPVOID arg)
                 size_t offset = 0;
 
                 if (bytes == 0) {
-                    dmon__refresh_watch(watch);
+                    _dmon_refresh_watch(watch);
                     LeaveCriticalSection(&_dmon.mutex);
                     continue;
                 }
@@ -529,7 +530,7 @@ _DMON_PRIVATE DWORD WINAPI dmon__thread(LPVOID arg)
                                                     notify->FileNameLength / sizeof(WCHAR),
                                                     filepath, DMON_MAX_PATH - 1, NULL, NULL);
                     filepath[count] = TEXT('\0');
-                    dmon__unixpath(filepath, sizeof(filepath), filepath);
+                    _dmon_unixpath(filepath, sizeof(filepath), filepath);
 
                     // TODO: ignore directories if flag is set
 
@@ -537,14 +538,14 @@ _DMON_PRIVATE DWORD WINAPI dmon__thread(LPVOID arg)
                         msecs_elapsed = 0;
                     }
                     dmon__win32_event wev = { { 0 }, notify->Action, watch->id, false };
-                    dmon__strcpy(wev.filepath, sizeof(wev.filepath), filepath);
+                    _dmon_strcpy(wev.filepath, sizeof(wev.filepath), filepath);
                     stb_sb_push(_dmon.events, wev);
 
                     offset += notify->NextEntryOffset;
                 } while (notify->NextEntryOffset > 0);
 
                 if (!_dmon.quit) {
-                    dmon__refresh_watch(watch);
+                    _dmon_refresh_watch(watch);
                 }
             }
         }    // if (WaitForMultipleObjects)
@@ -556,7 +557,7 @@ _DMON_PRIVATE DWORD WINAPI dmon__thread(LPVOID arg)
         starttm = tm;
         msecs_elapsed += dt;
         if (msecs_elapsed > 100 && stb_sb_count(_dmon.events) > 0) {
-            dmon__win32_process_events();
+            _dmon_win32_process_events();
             msecs_elapsed = 0;
         }
 
@@ -572,7 +573,7 @@ DMON_API_IMPL void dmon_init(void)
     InitializeCriticalSection(&_dmon.mutex);
 
     _dmon.thread_handle =
-        CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)dmon__thread, NULL, 0, NULL);
+        CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)_dmon_thread, NULL, 0, NULL);
     DMON_ASSERT(_dmon.thread_handle);
     _dmon_init = true;
 }
@@ -590,7 +591,7 @@ DMON_API_IMPL void dmon_deinit(void)
     {
         int i;
         for (i = 0; i < _dmon.num_watches; i++) {
-            dmon__unwatch(&_dmon.watches[i]);
+            _dmon_unwatch(&_dmon.watches[i]);
         }
     }
 
@@ -615,13 +616,13 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
 
     uint32_t id = ++_dmon.num_watches;
     dmon__watch_state* watch = &_dmon.watches[id - 1];
-    watch->id = dmon__make_id(id);
+    watch->id = _dmon_make_id(id);
     watch->watch_flags = flags;
     watch->watch_cb = watch_cb;
     watch->user_data = user_data;
 
-    dmon__strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, rootdir);
-    dmon__unixpath(watch->rootdir, sizeof(watch->rootdir), rootdir);
+    _dmon_strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, rootdir);
+    _dmon_unixpath(watch->rootdir, sizeof(watch->rootdir), rootdir);
     size_t rootdir_len = strlen(watch->rootdir);
     if (watch->rootdir[rootdir_len - 1] != '/') {
         watch->rootdir[rootdir_len] = '/';
@@ -639,23 +640,23 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
         watch->overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
         DMON_ASSERT(watch->overlapped.hEvent != INVALID_HANDLE_VALUE);
 
-        if (!dmon__refresh_watch(watch)) {
-            dmon__unwatch(watch);
+        if (!_dmon_refresh_watch(watch)) {
+            _dmon_unwatch(watch);
             DMON_LOG_ERROR("ReadDirectoryChanges failed");
             LeaveCriticalSection(&_dmon.mutex);
             _InterlockedExchange(&_dmon.modify_watches, 0);
-            return dmon__make_id(0);
+            return _dmon_make_id(0);
         }
     } else {
         _DMON_LOG_ERRORF("Could not open: %s", rootdir);
         LeaveCriticalSection(&_dmon.mutex);
         _InterlockedExchange(&_dmon.modify_watches, 0);
-        return dmon__make_id(0);
+        return _dmon_make_id(0);
     }
 
     LeaveCriticalSection(&_dmon.mutex);
     _InterlockedExchange(&_dmon.modify_watches, 0);
-    return dmon__make_id(id);
+    return _dmon_make_id(id);
 }
 
 DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
@@ -668,7 +669,7 @@ DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
     int index = id.id - 1;
     DMON_ASSERT(index < _dmon.num_watches);
 
-    dmon__unwatch(&_dmon.watches[index]);
+    _dmon_unwatch(&_dmon.watches[index]);
     if (index != _dmon.num_watches - 1) {
         dmon__swap(_dmon.watches[index], _dmon.watches[_dmon.num_watches - 1], dmon__watch_state);
     }
@@ -698,7 +699,7 @@ typedef struct dmon__watch_state {
     dmon_watch_id id;
     int fd;
     uint32_t watch_flags;
-    dmon__watch_cb* watch_cb;
+    _dmon_watch_cb* watch_cb;
     void* user_data;
     char rootdir[DMON_MAX_PATH];
     dmon__watch_subdir* subdirs;
@@ -717,7 +718,7 @@ typedef struct dmon__state {
 static bool _dmon_init;
 static dmon__state _dmon;
 
-_DMON_PRIVATE void dmon__watch_recursive(const char* dirname, int fd, uint32_t mask,
+_DMON_PRIVATE void _dmon_watch_recursive(const char* dirname, int fd, uint32_t mask,
                                          bool followlinks, dmon__watch_state* watch)
 {
     struct dirent* entry;
@@ -730,18 +731,18 @@ _DMON_PRIVATE void dmon__watch_recursive(const char* dirname, int fd, uint32_t m
         bool entry_valid = false;
         if (entry->d_type == DT_DIR) {
             if (strcmp(entry->d_name, "..") != 0 && strcmp(entry->d_name, ".") != 0) {
-                dmon__strcpy(watchdir, sizeof(watchdir), dirname);
-                dmon__strcat(watchdir, sizeof(watchdir), entry->d_name);
+                _dmon_strcpy(watchdir, sizeof(watchdir), dirname);
+                _dmon_strcat(watchdir, sizeof(watchdir), entry->d_name);
                 entry_valid = true;
             }
         } else if (followlinks && entry->d_type == DT_LNK) {
             char linkpath[PATH_MAX];
-            dmon__strcpy(watchdir, sizeof(watchdir), dirname);
-            dmon__strcat(watchdir, sizeof(watchdir), entry->d_name);
+            _dmon_strcpy(watchdir, sizeof(watchdir), dirname);
+            _dmon_strcat(watchdir, sizeof(watchdir), entry->d_name);
             char* r = realpath(watchdir, linkpath);
             _DMON_UNUSED(r);
             DMON_ASSERT(r);
-            dmon__strcpy(watchdir, sizeof(watchdir), linkpath);
+            _dmon_strcpy(watchdir, sizeof(watchdir), linkpath);
             entry_valid = true;
         }
 
@@ -757,22 +758,22 @@ _DMON_PRIVATE void dmon__watch_recursive(const char* dirname, int fd, uint32_t m
             DMON_ASSERT(wd != -1);
 
             dmon__watch_subdir subdir;
-            dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir);
+            _dmon_strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir);
             if (strstr(subdir.rootdir, watch->rootdir) == subdir.rootdir) {
-                dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir + strlen(watch->rootdir));
+                _dmon_strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir + strlen(watch->rootdir));
             }
 
             stb_sb_push(watch->subdirs, subdir);
             stb_sb_push(watch->wds, wd);
 
             // recurse
-            dmon__watch_recursive(watchdir, fd, mask, followlinks, watch);
+            _dmon_watch_recursive(watchdir, fd, mask, followlinks, watch);
         }
     }
     closedir(dir);
 }
 
-_DMON_PRIVATE const char* dmon__find_subdir(const dmon__watch_state* watch, int wd)
+_DMON_PRIVATE const char* _dmon_find_subdir(const dmon__watch_state* watch, int wd)
 {
     const int* wds = watch->wds;
     int i, c;
@@ -785,7 +786,7 @@ _DMON_PRIVATE const char* dmon__find_subdir(const dmon__watch_state* watch, int 
     return NULL;
 }
 
-_DMON_PRIVATE void dmon__gather_recursive(dmon__watch_state* watch, const char* dirname)
+_DMON_PRIVATE void _dmon_gather_recursive(dmon__watch_state* watch, const char* dirname)
 {
     struct dirent* entry;
     DIR* dir = opendir(dirname);
@@ -796,8 +797,8 @@ _DMON_PRIVATE void dmon__gather_recursive(dmon__watch_state* watch, const char* 
         bool entry_valid = false;
         bool is_dir = false;
         if (strcmp(entry->d_name, "..") != 0 && strcmp(entry->d_name, ".") != 0) {
-            dmon__strcpy(newdir, sizeof(newdir), dirname);
-            dmon__strcat(newdir, sizeof(newdir), entry->d_name);
+            _dmon_strcpy(newdir, sizeof(newdir), dirname);
+            _dmon_strcat(newdir, sizeof(newdir), entry->d_name);
             is_dir = (entry->d_type == DT_DIR);
             entry_valid = true;
         }
@@ -805,20 +806,20 @@ _DMON_PRIVATE void dmon__gather_recursive(dmon__watch_state* watch, const char* 
         // add sub-directory to watch dirs
         if (entry_valid) {
             dmon__watch_subdir subdir;
-            dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), newdir);
+            _dmon_strcpy(subdir.rootdir, sizeof(subdir.rootdir), newdir);
             if (strstr(subdir.rootdir, watch->rootdir) == subdir.rootdir) {
-                dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), newdir + strlen(watch->rootdir));
+                _dmon_strcpy(subdir.rootdir, sizeof(subdir.rootdir), newdir + strlen(watch->rootdir));
             }
 
             dmon__inotify_event dev = { { 0 }, IN_CREATE|(is_dir ? IN_ISDIR : 0), 0, watch->id, false };
-            dmon__strcpy(dev.filepath, sizeof(dev.filepath), subdir.rootdir);
+            _dmon_strcpy(dev.filepath, sizeof(dev.filepath), subdir.rootdir);
             stb_sb_push(_dmon.events, dev);
         }
     }
     closedir(dir);
 }
 
-_DMON_PRIVATE void dmon__inotify_process_events(void)
+_DMON_PRIVATE void _dmon_inotify_process_events(void)
 {
     int i, c;
     for (i = 0, c = stb_sb_count(_dmon.events); i < c; i++) {
@@ -937,18 +938,18 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
             if (ev->mask & IN_ISDIR) {
                 if (watch->watch_flags & DMON_WATCHFLAGS_RECURSIVE) {
                     char watchdir[DMON_MAX_PATH];
-                    dmon__strcpy(watchdir, sizeof(watchdir), watch->rootdir);
-                    dmon__strcat(watchdir, sizeof(watchdir), ev->filepath);
-                    dmon__strcat(watchdir, sizeof(watchdir), "/");
+                    _dmon_strcpy(watchdir, sizeof(watchdir), watch->rootdir);
+                    _dmon_strcat(watchdir, sizeof(watchdir), ev->filepath);
+                    _dmon_strcat(watchdir, sizeof(watchdir), "/");
                     uint32_t mask = IN_MOVED_TO | IN_CREATE | IN_MOVED_FROM | IN_DELETE | IN_MODIFY;
                     int wd = inotify_add_watch(watch->fd, watchdir, mask);
                     _DMON_UNUSED(wd);
                     DMON_ASSERT(wd != -1);
 
                     dmon__watch_subdir subdir;
-                    dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir);
+                    _dmon_strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir);
                     if (strstr(subdir.rootdir, watch->rootdir) == subdir.rootdir) {
-                        dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir + strlen(watch->rootdir));
+                        _dmon_strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir + strlen(watch->rootdir));
                     }
 
                     stb_sb_push(watch->subdirs, subdir);
@@ -956,7 +957,7 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
 
                     // some directories may be already created, for instance, with the command: mkdir -p
                     // so we will enumerate them manually and add them to the events
-                    dmon__gather_recursive(watch, watchdir);
+                    _dmon_gather_recursive(watch, watchdir);
                     ev = &_dmon.events[i]; // gotta refresh the pointer because it may be relocated
                 }
             }
@@ -984,7 +985,7 @@ _DMON_PRIVATE void dmon__inotify_process_events(void)
     stb_sb_reset(_dmon.events);
 }
 
-static void* dmon__thread(void* arg)
+static void* _dmon_thread(void* arg)
 {
     _DMON_UNUSED(arg);
 
@@ -1030,11 +1031,11 @@ static void* dmon__thread(void* arg)
                     while (offset < len) {
                         struct inotify_event* iev = (struct inotify_event*)&buff[offset];
 
-                        const char *subdir = dmon__find_subdir(watch, iev->wd);
+                        const char *subdir = _dmon_find_subdir(watch, iev->wd);
                         if (subdir) {
                             char filepath[DMON_MAX_PATH];
-                            dmon__strcpy(filepath, sizeof(filepath), subdir);
-                            dmon__strcat(filepath, sizeof(filepath), iev->name);
+                            _dmon_strcpy(filepath, sizeof(filepath), subdir);
+                            _dmon_strcat(filepath, sizeof(filepath), iev->name);
 
                             // TODO: ignore directories if flag is set
 
@@ -1042,7 +1043,7 @@ static void* dmon__thread(void* arg)
                                 usecs_elapsed = 0;
                             }
                             dmon__inotify_event dev = { { 0 }, iev->mask, iev->cookie, watch->id, false };
-                            dmon__strcpy(dev.filepath, sizeof(dev.filepath), filepath);
+                            _dmon_strcpy(dev.filepath, sizeof(dev.filepath), filepath);
                             stb_sb_push(_dmon.events, dev);
                         }
 
@@ -1058,7 +1059,7 @@ static void* dmon__thread(void* arg)
         starttm = tm;
         usecs_elapsed += dt;
         if (usecs_elapsed > 100000 && stb_sb_count(_dmon.events) > 0) {
-            dmon__inotify_process_events();
+            _dmon_inotify_process_events();
             usecs_elapsed = 0;
         }
 
@@ -1067,7 +1068,7 @@ static void* dmon__thread(void* arg)
     return 0x0;
 }
 
-_DMON_PRIVATE void dmon__unwatch(dmon__watch_state* watch)
+_DMON_PRIVATE void _dmon_unwatch(dmon__watch_state* watch)
 {
     close(watch->fd);
     stb_sb_free(watch->subdirs);
@@ -1080,7 +1081,7 @@ DMON_API_IMPL void dmon_init(void)
     DMON_ASSERT(!_dmon_init);
     pthread_mutex_init(&_dmon.mutex, NULL);
 
-    int r = pthread_create(&_dmon.thread_handle, NULL, dmon__thread, NULL);
+    int r = pthread_create(&_dmon.thread_handle, NULL, _dmon_thread, NULL);
     _DMON_UNUSED(r);
     DMON_ASSERT(r == 0 && "pthread_create failed");
     _dmon_init = true;
@@ -1095,7 +1096,7 @@ DMON_API_IMPL void dmon_deinit(void)
     {
         int i;
         for (i = 0; i < _dmon.num_watches; i++) {
-            dmon__unwatch(&_dmon.watches[i]);
+            _dmon_unwatch(&_dmon.watches[i]);
         }
     }
 
@@ -1119,7 +1120,7 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
 
     uint32_t id = ++_dmon.num_watches;
     dmon__watch_state* watch = &_dmon.watches[id - 1];
-    watch->id = dmon__make_id(id);
+    watch->id = _dmon_make_id(id);
     watch->watch_flags = flags;
     watch->watch_cb = watch_cb;
     watch->user_data = user_data;
@@ -1129,7 +1130,7 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
         (root_st.st_mode & S_IRUSR) != S_IRUSR) {
         _DMON_LOG_ERRORF("Could not open/read directory: %s", rootdir);
         pthread_mutex_unlock(&_dmon.mutex);
-        return dmon__make_id(0);
+        return _dmon_make_id(0);
     }
 
 
@@ -1140,15 +1141,15 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
             _DMON_UNUSED(r);
             DMON_ASSERT(r);
 
-            dmon__strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, linkpath);
+            _dmon_strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, linkpath);
         } else {
             _DMON_LOG_ERRORF("symlinks are unsupported: %s. use DMON_WATCHFLAGS_FOLLOW_SYMLINKS",
                              rootdir);
             pthread_mutex_unlock(&_dmon.mutex);
-            return dmon__make_id(0);
+            return _dmon_make_id(0);
         }
     } else {
-        dmon__strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, rootdir);
+        _dmon_strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, rootdir);
     }
 
     // add trailing slash
@@ -1162,7 +1163,7 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
     if (watch->fd < -1) {
         DMON_LOG_ERROR("could not create inotify instance");
         pthread_mutex_unlock(&_dmon.mutex);
-        return dmon__make_id(0);
+        return _dmon_make_id(0);
     }
 
     uint32_t inotify_mask = IN_MOVED_TO | IN_CREATE | IN_MOVED_FROM | IN_DELETE | IN_MODIFY;
@@ -1170,22 +1171,22 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
     if (wd < 0) {
        _DMON_LOG_ERRORF("Error watching directory '%s'. (inotify_add_watch:err=%d)", watch->rootdir, errno);
         pthread_mutex_unlock(&_dmon.mutex);
-        return dmon__make_id(0);
+        return _dmon_make_id(0);
     }
     dmon__watch_subdir subdir;
-    dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), "");   // root dir is just a dummy entry
+    _dmon_strcpy(subdir.rootdir, sizeof(subdir.rootdir), "");   // root dir is just a dummy entry
     stb_sb_push(watch->subdirs, subdir);
     stb_sb_push(watch->wds, wd);
 
     // recursive mode: enumarate all child directories and add them to watch
     if (flags & DMON_WATCHFLAGS_RECURSIVE) {
-        dmon__watch_recursive(watch->rootdir, watch->fd, inotify_mask,
+        _dmon_watch_recursive(watch->rootdir, watch->fd, inotify_mask,
                               (flags & DMON_WATCHFLAGS_FOLLOW_SYMLINKS) ? true : false, watch);
     }
 
 
     pthread_mutex_unlock(&_dmon.mutex);
-    return dmon__make_id(id);
+    return _dmon_make_id(id);
 }
 
 DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
@@ -1197,7 +1198,7 @@ DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
     int index = id.id - 1;
     DMON_ASSERT(index < _dmon.num_watches);
 
-    dmon__unwatch(&_dmon.watches[index]);
+    _dmon_unwatch(&_dmon.watches[index]);
     if (index != _dmon.num_watches - 1) {
         dmon__swap(_dmon.watches[index], _dmon.watches[_dmon.num_watches - 1], dmon__watch_state);
     }
@@ -1220,7 +1221,7 @@ typedef struct dmon__watch_state {
     dmon_watch_id id;
     uint32_t watch_flags;
     FSEventStreamRef fsev_stream_ref;
-    dmon__watch_cb* watch_cb;
+    _dmon_watch_cb* watch_cb;
     void* user_data;
     char rootdir[DMON_MAX_PATH];
     char rootdir_unmod[DMON_MAX_PATH];
@@ -1248,27 +1249,27 @@ union dmon__cast_userdata {
 static bool _dmon_init;
 static dmon__state _dmon;
 
-_DMON_PRIVATE void* dmon__cf_malloc(CFIndex size, CFOptionFlags hints, void* info)
+_DMON_PRIVATE void* _dmon_cf_malloc(CFIndex size, CFOptionFlags hints, void* info)
 {
     _DMON_UNUSED(hints);
     _DMON_UNUSED(info);
     return DMON_MALLOC(size);
 }
 
-_DMON_PRIVATE void dmon__cf_free(void* ptr, void* info)
+_DMON_PRIVATE void _dmon_cf_free(void* ptr, void* info)
 {
     _DMON_UNUSED(info);
     DMON_FREE(ptr);
 }
 
-_DMON_PRIVATE void* dmon__cf_realloc(void* ptr, CFIndex newsize, CFOptionFlags hints, void* info)
+_DMON_PRIVATE void* _dmon_cf_realloc(void* ptr, CFIndex newsize, CFOptionFlags hints, void* info)
 {
     _DMON_UNUSED(hints);
     _DMON_UNUSED(info);
     return DMON_REALLOC(ptr, (size_t)newsize);
 }
 
-_DMON_PRIVATE void dmon__fsevent_process_events(void)
+_DMON_PRIVATE void _dmon_fsevent_process_events(void)
 {
     int i, c;
     for (i = 0, c = stb_sb_count(_dmon.events); i < c; i++) {
@@ -1308,8 +1309,8 @@ _DMON_PRIVATE void dmon__fsevent_process_events(void)
 
                 char abs_filepath[DMON_MAX_PATH];
                 dmon__watch_state* watch = &_dmon.watches[ev->watch_id.id-1];
-                dmon__strcpy(abs_filepath, sizeof(abs_filepath), watch->rootdir);
-                dmon__strcat(abs_filepath, sizeof(abs_filepath), ev->filepath);
+                _dmon_strcpy(abs_filepath, sizeof(abs_filepath), watch->rootdir);
+                _dmon_strcat(abs_filepath, sizeof(abs_filepath), ev->filepath);
 
                 struct stat root_st;
                 if (stat(abs_filepath, &root_st) != 0) {
@@ -1358,7 +1359,7 @@ _DMON_PRIVATE void dmon__fsevent_process_events(void)
     stb_sb_reset(_dmon.events);
 }
 
-static void* dmon__thread(void* arg)
+_DMON_PRIVATE void* _dmon_thread(void* arg)
 {
     _DMON_UNUSED(arg);
 
@@ -1394,7 +1395,7 @@ static void* dmon__thread(void* arg)
         }
 
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.5, kCFRunLoopRunTimedOut);
-        dmon__fsevent_process_events();
+        _dmon_fsevent_process_events();
 
         pthread_mutex_unlock(&_dmon.mutex);
     }
@@ -1404,7 +1405,7 @@ static void* dmon__thread(void* arg)
     return 0x0;
 }
 
-_DMON_PRIVATE void dmon__unwatch(dmon__watch_state* watch)
+_DMON_PRIVATE void _dmon_unwatch(dmon__watch_state* watch)
 {
     if (watch->fsev_stream_ref) {
         FSEventStreamStop(watch->fsev_stream_ref);
@@ -1422,15 +1423,15 @@ DMON_API_IMPL void dmon_init(void)
     pthread_mutex_init(&_dmon.mutex, NULL);
 
     CFAllocatorContext cf_alloc_ctx = { 0 };
-    cf_alloc_ctx.allocate = dmon__cf_malloc;
-    cf_alloc_ctx.deallocate = dmon__cf_free;
-    cf_alloc_ctx.reallocate = dmon__cf_realloc;
+    cf_alloc_ctx.allocate = _dmon_cf_malloc;
+    cf_alloc_ctx.deallocate = _dmon_cf_free;
+    cf_alloc_ctx.reallocate = _dmon_cf_realloc;
     _dmon.cf_alloc_ref = CFAllocatorCreate(NULL, &cf_alloc_ctx);
 
     _dmon.thread_sem = dispatch_semaphore_create(0);
     DMON_ASSERT(_dmon.thread_sem);
 
-    int r = pthread_create(&_dmon.thread_handle, NULL, dmon__thread, NULL);
+    int r = pthread_create(&_dmon.thread_handle, NULL, _dmon_thread, NULL);
     _DMON_UNUSED(r);
     DMON_ASSERT(r == 0 && "pthread_create failed");
 
@@ -1451,7 +1452,7 @@ DMON_API_IMPL void dmon_deinit(void)
     {
         int i;
         for (i = 0; i < _dmon.num_watches; i++) {
-            dmon__unwatch(&_dmon.watches[i]);
+            _dmon_unwatch(&_dmon.watches[i]);
         }
     }
 
@@ -1464,7 +1465,7 @@ DMON_API_IMPL void dmon_deinit(void)
     _dmon_init = false;
 }
 
-_DMON_PRIVATE void dmon__fsevent_callback(ConstFSEventStreamRef stream_ref, void* user_data,
+_DMON_PRIVATE void _dmon_fsevent_callback(ConstFSEventStreamRef stream_ref, void* user_data,
                                           size_t num_events, void* event_paths,
                                           const FSEventStreamEventFlags event_flags[],
                                           const FSEventStreamEventId event_ids[])
@@ -1473,7 +1474,7 @@ _DMON_PRIVATE void dmon__fsevent_callback(ConstFSEventStreamRef stream_ref, void
 
     union dmon__cast_userdata _userdata;
     _userdata.ptr = user_data;
-    dmon_watch_id watch_id = dmon__make_id(_userdata.id);
+    dmon_watch_id watch_id = _dmon_make_id(_userdata.id);
     DMON_ASSERT(watch_id.id > 0);
     dmon__watch_state* watch = &_dmon.watches[watch_id.id - 1];
     char abs_filepath[DMON_MAX_PATH];
@@ -1488,15 +1489,15 @@ _DMON_PRIVATE void dmon__fsevent_callback(ConstFSEventStreamRef stream_ref, void
             dmon__fsevent_event ev;
             memset(&ev, 0x0, sizeof(ev));
 
-            dmon__strcpy(abs_filepath, sizeof(abs_filepath), filepath);
-            dmon__unixpath(abs_filepath, sizeof(abs_filepath), abs_filepath);
+            _dmon_strcpy(abs_filepath, sizeof(abs_filepath), filepath);
+            _dmon_unixpath(abs_filepath, sizeof(abs_filepath), abs_filepath);
 
             // normalize path, so it would be the same on both MacOS file-system types (case/nocase)
-            dmon__tolower(abs_filepath_lower, sizeof(abs_filepath), abs_filepath);
+            _dmon_tolower(abs_filepath_lower, sizeof(abs_filepath), abs_filepath);
             DMON_ASSERT(strstr(abs_filepath_lower, watch->rootdir) == abs_filepath_lower);
 
             // strip the root dir from the begining
-            dmon__strcpy(ev.filepath, sizeof(ev.filepath), abs_filepath + strlen(watch->rootdir));
+            _dmon_strcpy(ev.filepath, sizeof(ev.filepath), abs_filepath + strlen(watch->rootdir));
 
             ev.event_flags = flags;
             ev.event_id = event_id;
@@ -1522,7 +1523,7 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
 
     uint32_t id = ++_dmon.num_watches;
     dmon__watch_state* watch = &_dmon.watches[id - 1];
-    watch->id = dmon__make_id(id);
+    watch->id = _dmon_make_id(id);
     watch->watch_flags = flags;
     watch->watch_cb = watch_cb;
     watch->user_data = user_data;
@@ -1533,7 +1534,7 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
         _DMON_LOG_ERRORF("Could not open/read directory: %s", rootdir);
         pthread_mutex_unlock(&_dmon.mutex);
         __sync_lock_test_and_set(&_dmon.modify_watches, 0);
-        return dmon__make_id(0);
+        return _dmon_make_id(0);
     }
 
     if (S_ISLNK(root_st.st_mode)) {
@@ -1543,23 +1544,23 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
             _DMON_UNUSED(r);
             DMON_ASSERT(r);
 
-            dmon__strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, linkpath);
+            _dmon_strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, linkpath);
         } else {
             _DMON_LOG_ERRORF("symlinks are unsupported: %s. use DMON_WATCHFLAGS_FOLLOW_SYMLINKS", rootdir);
             pthread_mutex_unlock(&_dmon.mutex);
             __sync_lock_test_and_set(&_dmon.modify_watches, 0);
-            return dmon__make_id(0);
+            return _dmon_make_id(0);
         }
     } else {
         char rootdir_abspath[DMON_MAX_PATH];
         if (realpath(rootdir, rootdir_abspath) != NULL) {
-            dmon__strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, rootdir_abspath);
+            _dmon_strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, rootdir_abspath);
         } else {
-            dmon__strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, rootdir);
+            _dmon_strcpy(watch->rootdir, sizeof(watch->rootdir) - 1, rootdir);
         }
     }
 
-    dmon__unixpath(watch->rootdir, sizeof(watch->rootdir), watch->rootdir);
+    _dmon_unixpath(watch->rootdir, sizeof(watch->rootdir), watch->rootdir);
 
     // add trailing slash
     int rootdir_len = (int)strlen(watch->rootdir);
@@ -1568,8 +1569,8 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
         watch->rootdir[rootdir_len + 1] = '\0';
     }
 
-    dmon__strcpy(watch->rootdir_unmod, sizeof(watch->rootdir_unmod), watch->rootdir);
-    dmon__tolower(watch->rootdir, sizeof(watch->rootdir), watch->rootdir);
+    _dmon_strcpy(watch->rootdir_unmod, sizeof(watch->rootdir_unmod), watch->rootdir);
+    _dmon_tolower(watch->rootdir, sizeof(watch->rootdir), watch->rootdir);
 
     // create FS objects
     CFStringRef cf_dir = CFStringCreateWithCString(NULL, watch->rootdir_unmod, kCFStringEncodingUTF8);
@@ -1583,7 +1584,7 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
     ctx.retain = NULL;
     ctx.release = NULL;
     ctx.copyDescription = NULL;
-    watch->fsev_stream_ref = FSEventStreamCreate(_dmon.cf_alloc_ref, dmon__fsevent_callback, &ctx,
+    watch->fsev_stream_ref = FSEventStreamCreate(_dmon.cf_alloc_ref, _dmon_fsevent_callback, &ctx,
                                                  cf_dirarr, kFSEventStreamEventIdSinceNow, 0.25,
                                                  kFSEventStreamCreateFlagFileEvents);
 
@@ -1593,7 +1594,7 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
 
     pthread_mutex_unlock(&_dmon.mutex);
     __sync_lock_test_and_set(&_dmon.modify_watches, 0);
-    return dmon__make_id(id);
+    return _dmon_make_id(id);
 }
 
 DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
@@ -1606,7 +1607,7 @@ DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
     int index = id.id - 1;
     DMON_ASSERT(index < _dmon.num_watches);
 
-    dmon__unwatch(&_dmon.watches[index]);
+    _dmon_unwatch(&_dmon.watches[index]);
     if (index != _dmon.num_watches - 1) {
         dmon__swap(_dmon.watches[index], _dmon.watches[_dmon.num_watches - 1], dmon__watch_state);
     }
