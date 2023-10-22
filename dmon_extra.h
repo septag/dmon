@@ -2,7 +2,7 @@
 #define __DMON_EXTRA_H__
 
 //
-// Copyright 2021 Sepehr Taghdisian (septag@github). All rights reserved.
+// Copyright 2023 Sepehr Taghdisian (septag@github). All rights reserved.
 // License: https://github.com/septag/dmon#license-bsd-2-clause
 //
 //  Extra header functionality for dmon.h for the backend based on inotify
@@ -45,7 +45,7 @@ DMON_API_IMPL bool dmon_watch_add(dmon_watch_id id, const char* watchdir)
     if (!skip_lock)
         pthread_mutex_lock(&_dmon.mutex);
 
-    dmon__watch_state* watch = &_dmon.watches[id.id - 1];
+    dmon__watch_state* watch = _dmon.watches[id.id - 1];
 
     int dirlen, i, c;
 
@@ -55,21 +55,21 @@ DMON_API_IMPL bool dmon_watch_add(dmon_watch_id id, const char* watchdir)
     struct stat st;
     dmon__watch_subdir subdir;
     if (stat(watchdir, &st) == 0 && (st.st_mode & S_IFDIR)) {
-        dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir);
+        _dmon_strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir);
         if (strstr(subdir.rootdir, watch->rootdir) == subdir.rootdir) {
-            dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir + strlen(watch->rootdir));
+            _dmon_strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir + strlen(watch->rootdir));
         }
     } else {
         char fullpath[DMON_MAX_PATH];
-        dmon__strcpy(fullpath, sizeof(fullpath), watch->rootdir);
-        dmon__strcat(fullpath, sizeof(fullpath), watchdir);
+        _dmon_strcpy(fullpath, sizeof(fullpath), watch->rootdir);
+        _dmon_strcat(fullpath, sizeof(fullpath), watchdir);
         if (stat(fullpath, &st) != 0 || (st.st_mode & S_IFDIR) == 0) {
             _DMON_LOG_ERRORF("Watch directory '%s' is not valid", watchdir);
             if (!skip_lock)
                 pthread_mutex_unlock(&_dmon.mutex);
             return false;
         }
-        dmon__strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir);
+        _dmon_strcpy(subdir.rootdir, sizeof(subdir.rootdir), watchdir);
     }
 
     dirlen = (int)strlen(subdir.rootdir);
@@ -90,8 +90,8 @@ DMON_API_IMPL bool dmon_watch_add(dmon_watch_id id, const char* watchdir)
 
     const uint32_t inotify_mask = IN_MOVED_TO | IN_CREATE | IN_MOVED_FROM | IN_DELETE | IN_MODIFY;
     char fullpath[DMON_MAX_PATH];
-    dmon__strcpy(fullpath, sizeof(fullpath), watch->rootdir);
-    dmon__strcat(fullpath, sizeof(fullpath), subdir.rootdir);
+    _dmon_strcpy(fullpath, sizeof(fullpath), watch->rootdir);
+    _dmon_strcat(fullpath, sizeof(fullpath), subdir.rootdir);
     int wd = inotify_add_watch(watch->fd, fullpath, inotify_mask);
     if (wd == -1) {
         _DMON_LOG_ERRORF("Error watching directory '%s'. (inotify_add_watch:err=%d)", watchdir, errno);
@@ -118,12 +118,12 @@ DMON_API_IMPL bool dmon_watch_rm(dmon_watch_id id, const char* watchdir)
     if (!skip_lock)
         pthread_mutex_lock(&_dmon.mutex);
 
-    dmon__watch_state* watch = &_dmon.watches[id.id - 1];
+    dmon__watch_state* watch = _dmon.watches[id.id - 1];
 
     char subdir[DMON_MAX_PATH];
-    dmon__strcpy(subdir, sizeof(subdir), watchdir);
+    _dmon_strcpy(subdir, sizeof(subdir), watchdir);
     if (strstr(subdir, watch->rootdir) == subdir) {
-        dmon__strcpy(subdir, sizeof(subdir), watchdir + strlen(watch->rootdir));
+        _dmon_strcpy(subdir, sizeof(subdir), watchdir + strlen(watch->rootdir));
     }
 
     int dirlen = (int)strlen(subdir);

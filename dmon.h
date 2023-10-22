@@ -61,6 +61,9 @@
 //      DMON_MAX_WATCHES
 //          Maximum number of watch directories
 //          default is 64
+//      DMON_SLEEP_INTERVAL
+//          Number of milliseconds to pause between polling for file changes
+//          default is 10 ms
 //
 // TODO:
 //      - DMON_WATCHFLAGS_FOLLOW_SYMLINKS does not resolve files
@@ -224,6 +227,10 @@ DMON_API_DECL void dmon_unwatch(dmon_watch_id id);
 #   endif
 #endif
 
+#ifndef DMON_SLEEP_INTERVAL
+#   define DMON_SLEEP_INTERVAL 10
+#endif
+
 #include <string.h>
 
 #ifndef _DMON_LOG_ERRORF
@@ -360,7 +367,9 @@ static void * stb__sbgrowf(void *arr, int increment, int itemsize)
 typedef void (_dmon_watch_cb)(dmon_watch_id, dmon_action, const char*, const char*, const char*, void*);
 
 #if DMON_OS_WINDOWS
-// IOCP (windows)
+// ---------------------------------------------------------------------------------------------------------------------
+// @Windows
+// IOCP
 #ifdef UNICODE
 #   define _DMON_WINAPI_STR(name, size) wchar_t _##name[size]; MultiByteToWideChar(CP_UTF8, 0, name, -1, _##name, size)
 #else
@@ -493,12 +502,12 @@ _DMON_PRIVATE DWORD WINAPI _dmon_thread(LPVOID arg)
     while (!_dmon.quit) {
         int i;
         if (_dmon.modify_watches || !TryEnterCriticalSection(&_dmon.mutex)) {
-            Sleep(10);
+            Sleep(DMON_SLEEP_INTERVAL);
             continue;
         }
 
         if (_dmon.num_watches == 0) {
-            Sleep(10);
+            Sleep(DMON_SLEEP_INTERVAL);
             LeaveCriticalSection(&_dmon.mutex);
             continue;
         }
@@ -599,8 +608,11 @@ DMON_API_IMPL void dmon_deinit(void)
     {
         int i;
         for (i = 0; i < DMON_MAX_WATCHES; i++) {
-            if (_dmon.watches[i])
+            if (_dmon.watches[i]) {
                 _dmon_unwatch(_dmon.watches[i]);
+                DMON_FREE(_dmon.watches[i]);
+                _dmon.watches[i] = NULL;
+            }
         }
     }
 
@@ -719,6 +731,8 @@ DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
 }
 
 #elif DMON_OS_LINUX
+// ---------------------------------------------------------------------------------------------------------------------
+// @Linux
 // inotify linux backend
 #define _DMON_TEMP_BUFFSIZE ((sizeof(struct inotify_event) + PATH_MAX) * 1024)
 
@@ -746,7 +760,8 @@ typedef struct dmon__watch_state {
 } dmon__watch_state;
 
 typedef struct dmon__state {
-    dmon__watch_state watches[DMON_MAX_WATCHES];
+    dmon__watch_state* watches[DMON_MAX_WATCHES];
+   	int freelist[DMON_MAX_WATCHES];
     dmon__inotify_event* events;
     int num_watches;
     pthread_t thread_handle;
@@ -967,7 +982,7 @@ _DMON_PRIVATE void _dmon_inotify_process_events(void)
         if (ev->skip) {
             continue;
         }
-        dmon__watch_state* watch = &_dmon.watches[ev->watch_id.id - 1];
+        dmon__watch_state* watch = _dmon.watches[ev->watch_id.id - 1];
 
         if(watch == NULL || watch->watch_cb == NULL) {
             continue;
@@ -1029,7 +1044,7 @@ static void* _dmon_thread(void* arg)
     _DMON_UNUSED(arg);
 
     static uint8_t buff[_DMON_TEMP_BUFFSIZE];
-    struct timespec req = { (time_t)10 / 1000, (long)(10 * 1000000) };
+    struct timespec req = { (time_t)DMON_SLEEP_INTERVAL / 1000, (long)(DMON_SLEEP_INTERVAL * 1000000) };
     struct timespec rem = { 0, 0 };
     struct timeval timeout;
     uint64_t usecs_elapsed = 0;
@@ -1049,7 +1064,7 @@ static void* _dmon_thread(void* arg)
         {
             int i;
             for (i = 0; i < _dmon.num_watches; i++) {
-                dmon__watch_state* watch = &_dmon.watches[i];
+                dmon__watch_state* watch = _dmon.watches[i];
                 FD_SET(watch->fd, &rfds);
             }
         }
@@ -1059,7 +1074,7 @@ static void* _dmon_thread(void* arg)
         if (select(FD_SETSIZE, &rfds, NULL, NULL, &timeout)) {
             int i;
             for (i = 0; i < _dmon.num_watches; i++) {
-                dmon__watch_state* watch = &_dmon.watches[i];
+                dmon__watch_state* watch = _dmon.watches[i];
                 if (FD_ISSET(watch->fd, &rfds)) {
                     ssize_t offset = 0;
                     ssize_t len = read(watch->fd, buff, _DMON_TEMP_BUFFSIZE);
@@ -1112,7 +1127,6 @@ _DMON_PRIVATE void _dmon_unwatch(dmon__watch_state* watch)
     close(watch->fd);
     stb_sb_free(watch->subdirs);
     stb_sb_free(watch->wds);
-    memset(watch, 0x0, sizeof(dmon__watch_state));
 }
 
 DMON_API_IMPL void dmon_init(void)
@@ -1123,6 +1137,10 @@ DMON_API_IMPL void dmon_init(void)
     int r = pthread_create(&_dmon.thread_handle, NULL, _dmon_thread, NULL);
     _DMON_UNUSED(r);
     DMON_ASSERT(r == 0 && "pthread_create failed");
+
+    for (int i = 0; i < DMON_MAX_WATCHES; i++)
+        _dmon.freelist[i] = DMON_MAX_WATCHES - i - 1;
+
     _dmon_init = true;
 }
 
@@ -1135,7 +1153,11 @@ DMON_API_IMPL void dmon_deinit(void)
     {
         int i;
         for (i = 0; i < _dmon.num_watches; i++) {
-            _dmon_unwatch(&_dmon.watches[i]);
+            if (_dmon.watches[i]) {
+                _dmon_unwatch(_dmon.watches[i]);
+                DMON_FREE(_dmon.watches[i]);
+                _dmon.watches[i] = NULL;
+            }
         }
     }
 
@@ -1150,28 +1172,49 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
                                                         const char* oldname, void* user),
                                        uint32_t flags, void* user_data)
 {
+	DMON_ASSERT(_dmon_init);
     DMON_ASSERT(watch_cb);
     DMON_ASSERT(rootdir && rootdir[0]);
 
     pthread_mutex_lock(&_dmon.mutex);
 
     DMON_ASSERT(_dmon.num_watches < DMON_MAX_WATCHES);
+    if (_dmon.num_watches >= DMON_MAX_WATCHES) {
+        DMON_LOG_ERROR("Exceeding maximum number of watches");
+        pthread_mutex_unlock(&_dmon.mutex);
+        return _dmon_make_id(0);
+    }
 
-    uint32_t id = ++_dmon.num_watches;
-    dmon__watch_state* watch = &_dmon.watches[id - 1];
+    int num_freelist = DMON_MAX_WATCHES - _dmon.num_watches;
+    int index = _dmon.freelist[num_freelist - 1];
+    uint32_t id = (uint32_t)(index + 1);
+
+    if (_dmon.watches[index] == NULL) {
+        dmon__watch_state* state =  (dmon__watch_state*)DMON_MALLOC(sizeof(dmon__watch_state));
+        DMON_ASSERT(state);
+        if (state == NULL) {
+            pthread_mutex_unlock(&_dmon.mutex);
+            return _dmon_make_id(0);
+        }
+        memset(state, 0x0, sizeof(dmon__watch_state));
+        _dmon.watches[index] = state;
+    }
+
+    ++_dmon.num_watches;
+
+    dmon__watch_state* watch = _dmon.watches[index];
+    DMON_ASSERT(watch);
     watch->id = _dmon_make_id(id);
     watch->watch_flags = flags;
     watch->watch_cb = watch_cb;
     watch->user_data = user_data;
 
     struct stat root_st;
-    if (stat(rootdir, &root_st) != 0 || !S_ISDIR(root_st.st_mode) ||
-        (root_st.st_mode & S_IRUSR) != S_IRUSR) {
+    if (stat(rootdir, &root_st) != 0 || !S_ISDIR(root_st.st_mode) || (root_st.st_mode & S_IRUSR) != S_IRUSR) {
         _DMON_LOG_ERRORF("Could not open/read directory: %s", rootdir);
         pthread_mutex_unlock(&_dmon.mutex);
         return _dmon_make_id(0);
     }
-
 
     if (S_ISLNK(root_st.st_mode)) {
         if (flags & DMON_WATCHFLAGS_FOLLOW_SYMLINKS) {
@@ -1230,22 +1273,30 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
 
 DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
 {
+	DMON_ASSERT(_dmon_init);
     DMON_ASSERT(id.id > 0);
-
-    pthread_mutex_lock(&_dmon.mutex);
-
     int index = id.id - 1;
-    DMON_ASSERT(index < _dmon.num_watches);
+    DMON_ASSERT(index < DMON_MAX_WATCHES);
+    DMON_ASSERT(_dmon.watches[index]);
+    DMON_ASSERT(_dmon.num_watches > 0);
 
-    _dmon_unwatch(&_dmon.watches[index]);
-    if (index != _dmon.num_watches - 1) {
-        _dmon_swap(_dmon.watches[index], _dmon.watches[_dmon.num_watches - 1], dmon__watch_state);
+    if (_dmon.watches[index]) {
+        pthread_mutex_lock(&_dmon.mutex);
+
+        _dmon_unwatch(_dmon.watches[index]);
+        DMON_FREE(_dmon.watches[index]);
+        _dmon.watches[index] = NULL;
+
+        --_dmon.num_watches;
+        int num_freelist = DMON_MAX_WATCHES - _dmon.num_watches;
+        _dmon.freelist[num_freelist - 1] = index;
+
+        pthread_mutex_unlock(&_dmon.mutex);
     }
-    --_dmon.num_watches;
-
-    pthread_mutex_unlock(&_dmon.mutex);
 }
 #elif DMON_OS_MACOS
+// ---------------------------------------------------------------------------------------------------------------------
+// @MacOS
 // FSEvents MacOS backend
 typedef struct dmon__fsevent_event {
     char filepath[DMON_MAX_PATH];
@@ -1268,7 +1319,8 @@ typedef struct dmon__watch_state {
 } dmon__watch_state;
 
 typedef struct dmon__state {
-    dmon__watch_state watches[DMON_MAX_WATCHES];
+    dmon__watch_state* watches[DMON_MAX_WATCHES];
+   	int freelist[DMON_MAX_WATCHES];
     dmon__fsevent_event* events;
     int num_watches;
     volatile int modify_watches;
@@ -1402,7 +1454,7 @@ _DMON_PRIVATE void* _dmon_thread(void* arg)
 {
     _DMON_UNUSED(arg);
 
-    struct timespec req = { (time_t)10 / 1000, (long)(10 * 1000000) };
+    struct timespec req = { (time_t)DMON_SLEEP_INTERVAL / 1000, (long)(DMON_SLEEP_INTERVAL * 1000000) };
     struct timespec rem = { 0, 0 };
 
     _dmon.cf_loop_ref = CFRunLoopGetCurrent();
@@ -1422,7 +1474,7 @@ _DMON_PRIVATE void* _dmon_thread(void* arg)
         }
 
         for (i = 0; i < _dmon.num_watches; i++) {
-            dmon__watch_state* watch = &_dmon.watches[i];
+            dmon__watch_state* watch = _dmon.watches[i];
             if (!watch->init) {
                 DMON_ASSERT(watch->fsev_stream_ref);
                 FSEventStreamScheduleWithRunLoop(watch->fsev_stream_ref, _dmon.cf_loop_ref,
@@ -1452,8 +1504,6 @@ _DMON_PRIVATE void _dmon_unwatch(dmon__watch_state* watch)
         FSEventStreamRelease(watch->fsev_stream_ref);
         watch->fsev_stream_ref = NULL;
     }
-
-    memset(watch, 0x0, sizeof(dmon__watch_state));
 }
 
 DMON_API_IMPL void dmon_init(void)
@@ -1477,6 +1527,9 @@ DMON_API_IMPL void dmon_init(void)
     // wait for thread to initialize loop object
     dispatch_semaphore_wait(_dmon.thread_sem, DISPATCH_TIME_FOREVER);
 
+    for (int i = 0; i < DMON_MAX_WATCHES; i++)
+        _dmon.freelist[i] = DMON_MAX_WATCHES - i - 1;
+
     _dmon_init = true;
 }
 
@@ -1491,15 +1544,18 @@ DMON_API_IMPL void dmon_deinit(void)
     {
         int i;
         for (i = 0; i < _dmon.num_watches; i++) {
-            _dmon_unwatch(&_dmon.watches[i]);
+            if (_dmon.watches[i]) {
+                _dmon_unwatch(&_dmon.watches[i]);
+                DMON_FREE(_dmon.watches[i]);
+                _dmon.watches[i] = NULL;
+            }
         }
     }
 
     pthread_mutex_destroy(&_dmon.mutex);
     stb_sb_free(_dmon.events);
-    if (_dmon.cf_alloc_ref) {
+    if (_dmon.cf_alloc_ref)
         CFRelease(_dmon.cf_alloc_ref);
-    }
 
     _dmon_init = false;
 }
@@ -1515,7 +1571,7 @@ _DMON_PRIVATE void _dmon_fsevent_callback(ConstFSEventStreamRef stream_ref, void
     _userdata.ptr = user_data;
     dmon_watch_id watch_id = _dmon_make_id(_userdata.id);
     DMON_ASSERT(watch_id.id > 0);
-    dmon__watch_state* watch = &_dmon.watches[watch_id.id - 1];
+    dmon__watch_state* watch = _dmon.watches[watch_id.id - 1];
     char abs_filepath[DMON_MAX_PATH];
     char abs_filepath_lower[DMON_MAX_PATH];
 
@@ -1552,6 +1608,7 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
                                                         const char* oldname, void* user),
                                        uint32_t flags, void* user_data)
 {
+	DMON_ASSERT(_dmon_init);
     DMON_ASSERT(watch_cb);
     DMON_ASSERT(rootdir && rootdir[0]);
 
@@ -1559,9 +1616,32 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
     pthread_mutex_lock(&_dmon.mutex);
 
     DMON_ASSERT(_dmon.num_watches < DMON_MAX_WATCHES);
+    if (_dmon.num_watches >= DMON_MAX_WATCHES) {
+        DMON_LOG_ERROR("Exceeding maximum number of watches");
+        pthread_mutex_unlock(&_dmon.mutex);
+        return _dmon_make_id(0);
+    }
 
-    uint32_t id = ++_dmon.num_watches;
-    dmon__watch_state* watch = &_dmon.watches[id - 1];
+
+    int num_freelist = DMON_MAX_WATCHES - _dmon.num_watches;
+    int index = _dmon.freelist[num_freelist - 1];
+    uint32_t id = (uint32_t)(index + 1);
+
+    if (_dmon.watches[index] == NULL) {
+        dmon__watch_state* state =  (dmon__watch_state*)DMON_MALLOC(sizeof(dmon__watch_state));
+        DMON_ASSERT(state);
+        if (state == NULL) {
+            pthread_mutex_unlock(&_dmon.mutex);
+            return _dmon_make_id(0);
+        }
+        memset(state, 0x0, sizeof(dmon__watch_state));
+        _dmon.watches[index] = state;
+    }
+
+    ++_dmon.num_watches;
+
+    dmon__watch_state watch = _dmon.watches[id - 1];
+    DMON_ASSERT(watch);
     watch->id = _dmon_make_id(id);
     watch->watch_flags = flags;
     watch->watch_cb = watch_cb;
@@ -1638,22 +1718,28 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
 
 DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
 {
+   	DMON_ASSERT(_dmon_init);
     DMON_ASSERT(id.id > 0);
-
-    __sync_lock_test_and_set(&_dmon.modify_watches, 1);
-    pthread_mutex_lock(&_dmon.mutex);
-
     int index = id.id - 1;
-    DMON_ASSERT(index < _dmon.num_watches);
+    DMON_ASSERT(index < DMON_MAX_WATCHES);
+    DMON_ASSERT(_dmon.watches[index]);
+    DMON_ASSERT(_dmon.num_watches > 0);
 
-    _dmon_unwatch(&_dmon.watches[index]);
-    if (index != _dmon.num_watches - 1) {
-        _dmon_swap(_dmon.watches[index], _dmon.watches[_dmon.num_watches - 1], dmon__watch_state);
+    if (_dmon.watches[index]) {
+        __sync_lock_test_and_set(&_dmon.modify_watches, 1);
+        pthread_mutex_lock(&_dmon.mutex);
+
+        _dmon_unwatch(&_dmon.watches[index]);
+        DMON_FREE(_dmon.watches[index]);
+        _dmon.watches[index] = NULL;
+
+        --_dmon.num_watches;
+        int num_freelist = DMON_MAX_WATCHES - _dmon.num_watches;
+        _dmon.freelist[num_freelist - 1] = index;
+
+        pthread_mutex_unlock(&_dmon.mutex);
+        __sync_lock_test_and_set(&_dmon.modify_watches, 0);
     }
-    --_dmon.num_watches;
-
-    pthread_mutex_unlock(&_dmon.mutex);
-    __sync_lock_test_and_set(&_dmon.modify_watches, 0);
 }
 
 #endif
