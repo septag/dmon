@@ -79,6 +79,7 @@
 //                  to manually add/remove directories manually to the watch handle, in case of large file sets
 //      1.2.2       Name refactoring
 //      1.3.0       Fixing bugs and proper watch/unwatch handles with freelists. Lower memory consumption, especially on Windows backend
+//      1.3.1       Fix in MacOS event grouping
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -1427,9 +1428,10 @@ _DMON_PRIVATE void _dmon_fsevent_process_events(void)
         if (ev->event_flags & kFSEventStreamEventFlagItemCreated) {
             watch->watch_cb(ev->watch_id, DMON_ACTION_CREATE, watch->rootdir_unmod, ev->filepath, NULL,
                             watch->user_data);
-        } else if (ev->event_flags & kFSEventStreamEventFlagItemModified) {
-            watch->watch_cb(ev->watch_id, DMON_ACTION_MODIFY, watch->rootdir_unmod, ev->filepath, NULL,
-                            watch->user_data);
+        }
+        
+        if (ev->event_flags & kFSEventStreamEventFlagItemModified) {
+            watch->watch_cb(ev->watch_id, DMON_ACTION_MODIFY, watch->rootdir_unmod, ev->filepath, NULL, watch->user_data);
         } else if (ev->event_flags & kFSEventStreamEventFlagItemRenamed) {
             int j;
             for (j = i + 1; j < c; j++) {
