@@ -1,8 +1,6 @@
 #ifndef __DMON_H__
 #define __DMON_H__
 
-#define DMON_IMPL
-
 //
 // Copyright 2023 Sepehr Taghdisian (septag@github). All rights reserved.
 // License: https://github.com/septag/dmon#license-bsd-2-clause
@@ -66,6 +64,7 @@
 //          default is 10 ms
 //
 // TODO:
+//      - Use FSEventStreamSetDispatchQueue instead of FSEventStreamScheduleWithRunLoop on MacOS
 //      - DMON_WATCHFLAGS_FOLLOW_SYMLINKS does not resolve files
 //      - implement DMON_WATCHFLAGS_OUTOFSCOPE_LINKS
 //      - implement DMON_WATCHFLAGS_IGNORE_DIRECTORIES
@@ -78,7 +77,7 @@
 //      1.1.3       Fixed select not resetting causing high cpu usage on linux
 //      1.2.1       inotify (linux) fixes and improvements, added extra functionality header for linux
 //                  to manually add/remove directories manually to the watch handle, in case of large file sets
-//		1.2.2		Name refactoring
+//      1.2.2       Name refactoring
 //
 
 #include <stdbool.h>
@@ -1399,7 +1398,7 @@ _DMON_PRIVATE void _dmon_fsevent_process_events(void)
                 ev->event_flags &= ~kFSEventStreamEventFlagItemRenamed;
 
                 char abs_filepath[DMON_MAX_PATH];
-                dmon__watch_state* watch = &_dmon.watches[ev->watch_id.id-1];
+                dmon__watch_state* watch = _dmon.watches[ev->watch_id.id-1];
                 _dmon_strcpy(abs_filepath, sizeof(abs_filepath), watch->rootdir);
                 _dmon_strcat(abs_filepath, sizeof(abs_filepath), ev->filepath);
 
@@ -1419,7 +1418,7 @@ _DMON_PRIVATE void _dmon_fsevent_process_events(void)
         if (ev->skip) {
             continue;
         }
-        dmon__watch_state* watch = &_dmon.watches[ev->watch_id.id - 1];
+        dmon__watch_state* watch = _dmon.watches[ev->watch_id.id - 1];
 
         if(watch == NULL || watch->watch_cb == NULL) {
             continue;
@@ -1477,8 +1476,7 @@ _DMON_PRIVATE void* _dmon_thread(void* arg)
             dmon__watch_state* watch = _dmon.watches[i];
             if (!watch->init) {
                 DMON_ASSERT(watch->fsev_stream_ref);
-                FSEventStreamScheduleWithRunLoop(watch->fsev_stream_ref, _dmon.cf_loop_ref,
-                                                 kCFRunLoopDefaultMode);
+                FSEventStreamScheduleWithRunLoop(watch->fsev_stream_ref, _dmon.cf_loop_ref, kCFRunLoopDefaultMode);
                 FSEventStreamStart(watch->fsev_stream_ref);
 
                 watch->init = true;
@@ -1545,7 +1543,7 @@ DMON_API_IMPL void dmon_deinit(void)
         int i;
         for (i = 0; i < _dmon.num_watches; i++) {
             if (_dmon.watches[i]) {
-                _dmon_unwatch(&_dmon.watches[i]);
+                _dmon_unwatch(_dmon.watches[i]);
                 DMON_FREE(_dmon.watches[i]);
                 _dmon.watches[i] = NULL;
             }
@@ -1640,7 +1638,7 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
 
     ++_dmon.num_watches;
 
-    dmon__watch_state watch = _dmon.watches[id - 1];
+    dmon__watch_state* watch = _dmon.watches[id - 1];
     DMON_ASSERT(watch);
     watch->id = _dmon_make_id(id);
     watch->watch_flags = flags;
@@ -1729,7 +1727,7 @@ DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
         __sync_lock_test_and_set(&_dmon.modify_watches, 1);
         pthread_mutex_lock(&_dmon.mutex);
 
-        _dmon_unwatch(&_dmon.watches[index]);
+        _dmon_unwatch(_dmon.watches[index]);
         DMON_FREE(_dmon.watches[index]);
         _dmon.watches[index] = NULL;
 
