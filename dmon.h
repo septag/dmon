@@ -78,7 +78,7 @@
 //      1.2.1       inotify (linux) fixes and improvements, added extra functionality header for linux
 //                  to manually add/remove directories manually to the watch handle, in case of large file sets
 //      1.2.2       Name refactoring
-//
+//      1.3.0       Fixing bugs and proper watch/unwatch handles with freelists. Lower memory consumption, especially on Windows backend
 
 #include <stdbool.h>
 #include <stdint.h>
