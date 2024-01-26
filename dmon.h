@@ -51,7 +51,7 @@
 //          define this to provide your own extra debug logging mechanism
 //          default implementation logs to stdout in DEBUG and does nothing in other builds
 //      DMON_API_DECL, DMON_API_IMPL
-//          define these to provide your own API declerations. (for example: static)
+//          define these to provide your own API declarations. (for example: static)
 //          default is nothing (which is extern in C language )
 //      DMON_MAX_PATH
 //          Maximum size of path characters
@@ -363,7 +363,7 @@ static void * stb__sbgrowf(void *arr, int increment, int itemsize)
     }
 }
 
-// watcher callback (same as dmon.h's decleration)
+// watcher callback (same as dmon.h's declaration)
 typedef void (_dmon_watch_cb)(dmon_watch_id, dmon_action, const char*, const char*, const char*, void*);
 
 #if DMON_OS_WINDOWS
@@ -468,7 +468,7 @@ _DMON_PRIVATE void _dmon_win32_process_events(void)
                             watch->user_data);
             break;
         case FILE_ACTION_RENAMED_OLD_NAME: {
-            // find the first occurance of the NEW_NAME
+            // find the first occurrence of the NEW_NAME
             // this is somewhat API flaw that we have no reference for relating old and new files
             int j;
             for (j = i + 1; j < c; j++) {
@@ -893,7 +893,7 @@ _DMON_PRIVATE void _dmon_inotify_process_events(void)
                 } else if ((ev->mask & IN_ISDIR) && (check_ev->mask & (IN_ISDIR|IN_MODIFY))) {
                     // in some cases, particularly when created files under sub directories
                     // there can be two modify events for a single subdir one with trailing slash and one without
-                    // remove traling slash from both cases and test
+                    // remove trailing slash from both cases and test
                     int l1 = (int)strlen(ev->filepath);
                     int l2 = (int)strlen(check_ev->filepath);
                     if (ev->filepath[l1-1] == '/')          ev->filepath[l1-1] = '\0';
@@ -1260,7 +1260,7 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
     stb_sb_push(watch->subdirs, subdir);
     stb_sb_push(watch->wds, wd);
 
-    // recursive mode: enumarate all child directories and add them to watch
+    // recursive mode: enumerate all child directories and add them to watch
     if (flags & DMON_WATCHFLAGS_RECURSIVE) {
         _dmon_watch_recursive(watch->rootdir, watch->fd, inotify_mask,
                               (flags & DMON_WATCHFLAGS_FOLLOW_SYMLINKS) ? true : false, watch);
@@ -1591,7 +1591,7 @@ _DMON_PRIVATE void _dmon_fsevent_callback(ConstFSEventStreamRef stream_ref, void
             _dmon_tolower(abs_filepath_lower, sizeof(abs_filepath), abs_filepath);
             DMON_ASSERT(strstr(abs_filepath_lower, watch->rootdir) == abs_filepath_lower);
 
-            // strip the root dir from the begining
+            // strip the root dir from the beginning
             _dmon_strcpy(ev.filepath, sizeof(ev.filepath), abs_filepath + strlen(watch->rootdir));
 
             ev.event_flags = flags;
