@@ -865,7 +865,7 @@ _DMON_PRIVATE void _dmon_gather_recursive(dmon__watch_state* watch, const char* 
                 _dmon_strcpy(subdir.rootdir, sizeof(subdir.rootdir), newdir + strlen(watch->rootdir));
             }
 
-            dmon__inotify_event dev = { { 0 }, IN_CREATE|(is_dir ? IN_ISDIR : 0), 0, watch->id, false };
+            dmon__inotify_event dev = { { 0 }, IN_CREATE|(is_dir ? IN_ISDIR : 0U), 0, watch->id, false };
             _dmon_strcpy(dev.filepath, sizeof(dev.filepath), subdir.rootdir);
             stb_sb_push(_dmon.events, dev);
         }
