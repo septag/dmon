@@ -1,0 +1,17 @@
+{
+    "files.exclude": {
+        "**/.git": true,
+        "**/.svn": true,
+        "**/.hg": true,
+        "**/CVS": true,
+        "**/.DS_Store": true,
+        "**/Thumbs.db": true,
+        ".build": true,
+        ".cache": true,
+        ".downloads": true,
+        "*.ini": true,
+        "data": true,
+        "bin": true,
+        "art": true
+    }
+}

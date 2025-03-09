@@ -67,7 +67,6 @@
 //      - Use FSEventStreamSetDispatchQueue instead of FSEventStreamScheduleWithRunLoop on MacOS
 //      - DMON_WATCHFLAGS_FOLLOW_SYMLINKS does not resolve files
 //      - implement DMON_WATCHFLAGS_OUTOFSCOPE_LINKS
-//      - implement DMON_WATCHFLAGS_IGNORE_DIRECTORIES
 //
 // History:
 //      1.0.0       First version. working Win32/Linux backends
@@ -98,8 +97,7 @@ typedef struct { uint32_t id; } dmon_watch_id;
 typedef enum dmon_watch_flags_t {
     DMON_WATCHFLAGS_RECURSIVE = 0x1,            // monitor all child directories
     DMON_WATCHFLAGS_FOLLOW_SYMLINKS = 0x2,      // resolve symlinks (linux only)
-    DMON_WATCHFLAGS_OUTOFSCOPE_LINKS = 0x4,     // TODO: not implemented yet
-    DMON_WATCHFLAGS_IGNORE_DIRECTORIES = 0x8    // TODO: not implemented yet
+    DMON_WATCHFLAGS_OUTOFSCOPE_LINKS = 0x4      // TODO: not implemented yet
 } dmon_watch_flags;
 
 // Action is what operation performed on the file. this value is provided by watch callback
@@ -546,8 +544,6 @@ _DMON_PRIVATE DWORD WINAPI _dmon_thread(LPVOID arg)
                                                     filepath, DMON_MAX_PATH - 1, NULL, NULL);
                     filepath[count] = TEXT('\0');
                     _dmon_unixpath(filepath, sizeof(filepath), filepath);
-
-                    // TODO: ignore directories if flag is set
 
                     if (stb_sb_count(_dmon.events) == 0) {
                         msecs_elapsed = 0;
@@ -1090,8 +1086,6 @@ static void* _dmon_thread(void* arg)
                             char filepath[DMON_MAX_PATH];
                             _dmon_strcpy(filepath, sizeof(filepath), subdir);
                             _dmon_strcat(filepath, sizeof(filepath), iev->name);
-
-                            // TODO: ignore directories if flag is set
 
                             if (stb_sb_count(_dmon.events) == 0) {
                                 usecs_elapsed = 0;

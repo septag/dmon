@@ -1,0 +1,37 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Windows",
+            "type": "shell",
+            "command": "cl",
+            "args": ["/O0", "/Zi", "/Gr-", "test.cpp"],
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+        },
+        {
+            "label": "Build Linux",
+            "type": "cppbuild",
+            "command": "flatpak-spawn",
+            "args": ["--host", "clang", "test.c", "-lpthread", "-g", "-O0", "-o", "test"],
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ]
+}
