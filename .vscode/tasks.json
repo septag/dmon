@@ -5,7 +5,7 @@
             "label": "Build Windows",
             "type": "shell",
             "command": "cl",
-            "args": ["/O0", "/Zi", "/Gr-", "test.cpp"],
+            "args": ["/Od", "/Zi", "test.c"],
             "problemMatcher": [
                 "$msCompile"
             ],
