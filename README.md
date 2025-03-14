@@ -36,11 +36,10 @@ int main()
 
 For more information and how to customize functionality, see [dmon.h](dmon.h)
 
-To build on linux, link with `pthread`:
-```gcc test.c -lpthread -o test```
-
-To build on MacOS, link with `CoreServices` and `CoreFoundation`:
-```clang test.c -framework CoreFoundation -framework CoreServices -lpthread -o test```
+# Build Example
+- Windows: ```cl test.c```
+- Linux: ```gcc test.c -lpthread -o test```
+- MacOS: ```clang test.c -framework CoreFoundation -framework CoreServices -lpthread -o test```
 
 ### Linux Extras
 There is this other file `dmon_extra.h` that you can include optionally after `dmon.h` for linux backend. 
