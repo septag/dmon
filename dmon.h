@@ -79,6 +79,10 @@
 //      1.2.2       Name refactoring
 //      1.3.0       Fixing bugs and proper watch/unwatch handles with freelists. Lower memory consumption, especially on Windows backend
 //      1.3.1       Fix in MacOS event grouping
+//      1.3.2       Fixes and improvements for Windows backend
+//      1.3.3       Fixed thread sanitizer issues with Linux backend
+//      1.3.4       Fixed thread sanitizer issues with MacOS backend
+//      
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -1344,13 +1348,12 @@ typedef struct dmon__state {
    	int freelist[DMON_MAX_WATCHES];
     dmon__fsevent_event* events;
     int num_watches;
-    volatile int modify_watches;
     pthread_t thread_handle;
     dispatch_semaphore_t thread_sem;
     pthread_mutex_t mutex;
     CFRunLoopRef cf_loop_ref;
     CFAllocatorRef cf_alloc_ref;
-    volatile bool quit;
+    bool quit;
 } dmon__state;
 
 union dmon__cast_userdata {
@@ -1482,9 +1485,9 @@ _DMON_PRIVATE void* _dmon_thread(void* arg)
     _dmon.cf_loop_ref = CFRunLoopGetCurrent();
     dispatch_semaphore_signal(_dmon.thread_sem);
 
-    while (!_dmon.quit) {
+    while (__sync_bool_compare_and_swap(&_dmon.quit, false, false)) {
         int i;
-        if (_dmon.modify_watches || pthread_mutex_trylock(&_dmon.mutex) != 0) {
+        if (pthread_mutex_trylock(&_dmon.mutex) != 0) {
             nanosleep(&req, &rem);
             continue;
         }
@@ -1557,7 +1560,7 @@ DMON_API_IMPL void dmon_init(void)
 DMON_API_IMPL void dmon_deinit(void)
 {
     DMON_ASSERT(_dmon_init);
-    _dmon.quit = true;
+    __sync_lock_test_and_set(&_dmon.quit, true);
     pthread_join(_dmon.thread_handle, NULL);
 
     dispatch_release(_dmon.thread_sem);
@@ -1633,7 +1636,6 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
     DMON_ASSERT(watch_cb);
     DMON_ASSERT(rootdir && rootdir[0]);
 
-    __sync_lock_test_and_set(&_dmon.modify_watches, 1);
     pthread_mutex_lock(&_dmon.mutex);
 
     DMON_ASSERT(_dmon.num_watches < DMON_MAX_WATCHES);
@@ -1673,7 +1675,6 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
         (root_st.st_mode & S_IRUSR) != S_IRUSR) {
         _DMON_LOG_ERRORF("Could not open/read directory: %s", rootdir);
         pthread_mutex_unlock(&_dmon.mutex);
-        __sync_lock_test_and_set(&_dmon.modify_watches, 0);
         return _dmon_make_id(0);
     }
 
@@ -1688,7 +1689,6 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
         } else {
             _DMON_LOG_ERRORF("symlinks are unsupported: %s. use DMON_WATCHFLAGS_FOLLOW_SYMLINKS", rootdir);
             pthread_mutex_unlock(&_dmon.mutex);
-            __sync_lock_test_and_set(&_dmon.modify_watches, 0);
             return _dmon_make_id(0);
         }
     } else {
@@ -1733,7 +1733,6 @@ DMON_API_IMPL dmon_watch_id dmon_watch(const char* rootdir,
     CFRelease(cf_dir);
 
     pthread_mutex_unlock(&_dmon.mutex);
-    __sync_lock_test_and_set(&_dmon.modify_watches, 0);
     return _dmon_make_id(id);
 }
 
@@ -1747,7 +1746,6 @@ DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
     DMON_ASSERT(_dmon.num_watches > 0);
 
     if (_dmon.watches[index]) {
-        __sync_lock_test_and_set(&_dmon.modify_watches, 1);
         pthread_mutex_lock(&_dmon.mutex);
 
         _dmon_unwatch(_dmon.watches[index]);
@@ -1759,7 +1757,6 @@ DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
         _dmon.freelist[num_freelist - 1] = index;
 
         pthread_mutex_unlock(&_dmon.mutex);
-        __sync_lock_test_and_set(&_dmon.modify_watches, 0);
     }
 }
 

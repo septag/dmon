@@ -7,11 +7,21 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug LLDB",
+            "name": "Debug LLDB - Linux",
             "program": "${workspaceFolder}/test",
             "args": ["."],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "Build Linux"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug LLDB - MacOS",
+            "program": "${workspaceFolder}/test",
+            "args": ["."],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "Build MacOS",
+            "console": "externalTerminal"
         },
         {
             "name": "Debug Windows",

@@ -32,6 +32,22 @@
                 "kind": "build",
                 "isDefault": true
             }
+        },
+        {
+            "label": "Build MacOS",
+            "type": "cppbuild",
+            "command": "clang",
+            "args": ["test.c", "-framework", "CoreFoundation", "-framework",  "CoreServices", "-lpthread", "-fsanitize=thread", "-g", "-O0", "-o", "test"],
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }            
         }
     ]
 }
