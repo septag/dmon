@@ -20,8 +20,8 @@
         {
             "label": "Build Linux",
             "type": "cppbuild",
-            "command": "flatpak-spawn",
-            "args": ["--host", "clang", "test.c", "-lpthread", "-g", "-O0", "-o", "test"],
+            "command": "clang",
+            "args": ["test.c", "-lpthread", "-g", "-O0", "-o", "test"],
             "problemMatcher": [
                 "$gcc"
             ],

@@ -783,7 +783,7 @@ typedef struct dmon__state {
     int num_watches;
     pthread_t thread_handle;
     pthread_mutex_t mutex;
-    bool quit;
+    volatile bool quit;
 } dmon__state;
 
 static bool _dmon_init;
@@ -1069,9 +1069,15 @@ static void* _dmon_thread(void* arg)
     struct timeval starttm;
     gettimeofday(&starttm, 0);
 
-    while (!_dmon.quit) {
-        nanosleep(&req, &rem);
-        if (_dmon.num_watches == 0 || pthread_mutex_trylock(&_dmon.mutex) != 0) {
+    while (__sync_bool_compare_and_swap(&_dmon.quit, false, false)) {
+        if (pthread_mutex_trylock(&_dmon.mutex) != 0) {
+            nanosleep(&req, &rem);
+            continue;
+        }
+
+        if (_dmon.num_watches == 0) {
+            pthread_mutex_unlock(&_dmon.mutex);
+            nanosleep(&req, &rem);
             continue;
         }
 
@@ -1162,7 +1168,7 @@ DMON_API_IMPL void dmon_init(void)
 DMON_API_IMPL void dmon_deinit(void)
 {
     DMON_ASSERT(_dmon_init);
-    _dmon.quit = true;
+    __sync_lock_test_and_set(&_dmon.quit, true);
     pthread_join(_dmon.thread_handle, NULL);
 
     {
@@ -1344,7 +1350,7 @@ typedef struct dmon__state {
     pthread_mutex_t mutex;
     CFRunLoopRef cf_loop_ref;
     CFAllocatorRef cf_alloc_ref;
-    bool quit;
+    volatile bool quit;
 } dmon__state;
 
 union dmon__cast_userdata {
@@ -1484,8 +1490,8 @@ _DMON_PRIVATE void* _dmon_thread(void* arg)
         }
 
         if (_dmon.num_watches == 0) {
-            nanosleep(&req, &rem);
             pthread_mutex_unlock(&_dmon.mutex);
+            nanosleep(&req, &rem);
             continue;
         }
 
