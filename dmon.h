@@ -82,6 +82,7 @@
 //      1.3.2       Fixes and improvements for Windows backend
 //      1.3.3       Fixed thread sanitizer issues with Linux backend
 //      1.3.4       Fixed thread sanitizer issues with MacOS backend
+//      1.3.5       Got rid of volatile for quit variable
 //      
 
 #include <stdbool.h>
@@ -405,7 +406,7 @@ typedef struct dmon__state {
     HANDLE thread_handle;
     CRITICAL_SECTION mutex;
     dmon__win32_event* events;
-    volatile bool quit;
+    uint32_t quit;
 } dmon__state;
 
 static bool _dmon_init;
@@ -500,7 +501,7 @@ _DMON_PRIVATE DWORD WINAPI _dmon_thread(LPVOID arg)
     GetSystemTime(&starttm);
     uint64_t msecs_elapsed = 0;
 
-    while (!_dmon.quit) {
+    while (InterlockedCompareExchange(&_dmon.quit, 0, 0) == 0) {
         if (!TryEnterCriticalSection(&_dmon.mutex)) {
             Sleep(DMON_SLEEP_INTERVAL);
             continue;
@@ -559,7 +560,7 @@ _DMON_PRIVATE DWORD WINAPI _dmon_thread(LPVOID arg)
                     offset += notify->NextEntryOffset;
                 } while (notify->NextEntryOffset > 0);
 
-                if (!_dmon.quit) {
+                if (InterlockedCompareExchange(&_dmon.quit, 0, 0) == 0) {
                     _dmon_refresh_watch(watch);
                 }
             }
@@ -602,7 +603,7 @@ DMON_API_IMPL void dmon_init(void)
 DMON_API_IMPL void dmon_deinit(void)
 {
     DMON_ASSERT(_dmon_init);
-    _dmon.quit = true;
+    InterlockedExchange(&_dmon.quit, 1);
     if (_dmon.thread_handle != INVALID_HANDLE_VALUE) {
         WaitForSingleObject(_dmon.thread_handle, INFINITE);
         CloseHandle(_dmon.thread_handle);
@@ -787,7 +788,7 @@ typedef struct dmon__state {
     int num_watches;
     pthread_t thread_handle;
     pthread_mutex_t mutex;
-    volatile bool quit;
+    bool quit;
 } dmon__state;
 
 static bool _dmon_init;
