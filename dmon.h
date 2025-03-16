@@ -84,6 +84,7 @@
 //      1.3.4       Fixed thread sanitizer issues with MacOS backend
 //      1.3.5       Got rid of volatile for quit variable
 //      1.3.6       Fix deadlock when watch/unwatch API is called from the OnChange callback
+//      1.3.7       Fix deadlock caused by constantly locking the mutex in the thread loop (recent change)
 //      
 
 #include <stdbool.h>
@@ -503,14 +504,13 @@ _DMON_PRIVATE DWORD WINAPI _dmon_thread(LPVOID arg)
     uint64_t msecs_elapsed = 0;
 
     while (InterlockedCompareExchange(&_dmon.quit, 0, 0) == 0) {
+        Sleep(DMON_SLEEP_INTERVAL);
         if (!TryEnterCriticalSection(&_dmon.mutex)) {
-            Sleep(DMON_SLEEP_INTERVAL);
             continue;
         }
 
         if (_dmon.num_watches == 0) {
             LeaveCriticalSection(&_dmon.mutex);
-            Sleep(DMON_SLEEP_INTERVAL);
             continue;
         }
 
@@ -1076,14 +1076,13 @@ static void* _dmon_thread(void* arg)
     gettimeofday(&starttm, 0);
 
     while (__sync_bool_compare_and_swap(&_dmon.quit, false, false)) {
+        nanosleep(&req, &rem);
         if (pthread_mutex_trylock(&_dmon.mutex) != 0) {
-            nanosleep(&req, &rem);
             continue;
         }
 
         if (_dmon.num_watches == 0) {
             pthread_mutex_unlock(&_dmon.mutex);
-            nanosleep(&req, &rem);
             continue;
         }
 
@@ -1493,14 +1492,13 @@ _DMON_PRIVATE void* _dmon_thread(void* arg)
 
     while (__sync_bool_compare_and_swap(&_dmon.quit, false, false)) {
         int i;
+        nanosleep(&req, &rem);
         if (pthread_mutex_trylock(&_dmon.mutex) != 0) {
-            nanosleep(&req, &rem);
             continue;
         }
 
         if (_dmon.num_watches == 0) {
             pthread_mutex_unlock(&_dmon.mutex);
-            nanosleep(&req, &rem);
             continue;
         }
 
