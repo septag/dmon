@@ -83,6 +83,7 @@
 //      1.3.3       Fixed thread sanitizer issues with Linux backend
 //      1.3.4       Fixed thread sanitizer issues with MacOS backend
 //      1.3.5       Got rid of volatile for quit variable
+//      1.3.6       Fix deadlock when watch/unwatch API is called from the OnChange callback
 //      
 
 #include <stdbool.h>
@@ -1158,7 +1159,11 @@ _DMON_PRIVATE void _dmon_unwatch(dmon__watch_state* watch)
 DMON_API_IMPL void dmon_init(void)
 {
     DMON_ASSERT(!_dmon_init);
-    pthread_mutex_init(&_dmon.mutex, NULL);
+
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&_dmon.mutex, &attr);
 
     int r = pthread_create(&_dmon.thread_handle, NULL, _dmon_thread, NULL);
     _DMON_UNUSED(r);
@@ -1534,7 +1539,11 @@ _DMON_PRIVATE void _dmon_unwatch(dmon__watch_state* watch)
 DMON_API_IMPL void dmon_init(void)
 {
     DMON_ASSERT(!_dmon_init);
-    pthread_mutex_init(&_dmon.mutex, NULL);
+
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&_dmon.mutex, &attr);
 
     CFAllocatorContext cf_alloc_ctx = { 0 };
     cf_alloc_ctx.allocate = _dmon_cf_malloc;
