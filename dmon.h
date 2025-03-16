@@ -1178,7 +1178,7 @@ DMON_API_IMPL void dmon_init(void)
 DMON_API_IMPL void dmon_deinit(void)
 {
     DMON_ASSERT(_dmon_init);
-    __sync_lock_test_and_set(&_dmon.quit, true);
+    _DMON_UNUSED(__sync_lock_test_and_set(&_dmon.quit, true));
     pthread_join(_dmon.thread_handle, NULL);
 
     {
@@ -1570,7 +1570,7 @@ DMON_API_IMPL void dmon_init(void)
 DMON_API_IMPL void dmon_deinit(void)
 {
     DMON_ASSERT(_dmon_init);
-    __sync_lock_test_and_set(&_dmon.quit, true);
+    _DMON_UNUSED(__sync_lock_test_and_set(&_dmon.quit, true));
     pthread_join(_dmon.thread_handle, NULL);
 
     dispatch_release(_dmon.thread_sem);
