@@ -86,7 +86,8 @@
 //      1.3.7       Fix deadlock caused by constantly locking the mutex in the thread loop (recent change)
 //      1.3.8       Fix a cpp compatiblity compiler bug after recent changes
 //      1.3.9       Switch from deprecated FSEventStreamScheduleWithRunLoop to FSEventStreamSetDispatchQueue on macOS
-//      
+//      1.3.10      Reduced memory usage for Linux backend from 4MB to 256KB
+// 
 
 #include <stdbool.h>
 #include <stdint.h>

@@ -42,6 +42,8 @@ For more information and how to customize functionality, see [dmon.h](dmon.h)
 - MacOS: ```clang test.c -framework CoreFoundation -framework CoreServices -lpthread -o test```
 
 ### Linux Extras
+**NOTE**: If you want to compile with `c11` standard, you need to add gnu compiler extensions as well, otherwise you will get compilation errors. So the compilation command for test example would be: ```gcc test.c -lpthread -std=gnu11 -o test```
+
 There is this other file `dmon_extra.h` that you can include optionally after `dmon.h` for linux backend. 
 There are two APIs that are introduced in that header, `dmon_watch_add` and `dmon_watch_rm` in which you can add/remove 
 sub-directories to currently watched directory. This can be useful in cases where there are large set of changes happening 
