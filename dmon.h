@@ -759,7 +759,7 @@ DMON_API_IMPL void dmon_unwatch(dmon_watch_id id)
 // ---------------------------------------------------------------------------------------------------------------------
 // @Linux
 // inotify linux backend
-#define _DMON_TEMP_BUFFSIZE ((sizeof(struct inotify_event) + PATH_MAX) * 1024)
+#define _DMON_TEMP_BUFFSIZE ((sizeof(struct inotify_event) + NAME_MAX + 1) * 1024)
 
 typedef struct dmon__watch_subdir {
     char rootdir[DMON_MAX_PATH];
