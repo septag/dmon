@@ -2,9 +2,9 @@
 
 #define DMON_IMPL
 #include "dmon.h"
-#if defined(__linux__) || defined(linux) || defined(__linux)
+#if defined(DMON_OS_INOTIFY)
 #include "dmon_extra.h"
-#endif /* defined(__linux__) || defined(linux) || defined(__linux) */
+#endif // INotify backend
 
 static void watch_callback(dmon_watch_id watch_id, dmon_action action, const char* rootdir,
                            const char* filepath, const char* oldfilepath, void* user)
