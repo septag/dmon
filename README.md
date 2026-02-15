@@ -8,6 +8,7 @@ It provides a unified solution to multiple system APIs that exist for each OS. I
 - Windows: `ReadDirectoryChangesW` backend. Tested with Windows10 SDK + Visual Studio 2019
 - Linux: `inotify` backend. Tested with gcc-7.4/clang-6, ubuntu 18.04 LTS
 - MacOS: `FSEvents` backend. Tested with MacOS-10.14 clang 10
+- FreeBSD (as of 15.0): Compatibilty with Linux's `inotify` interface. Tested with gcc14.2/clang-19.1
 
 ### Usage
 
@@ -41,7 +42,7 @@ For more information and how to customize functionality, see [dmon.h](dmon.h)
 - Linux: ```gcc test.c -lpthread -o test```
 - MacOS: ```clang test.c -framework CoreFoundation -framework CoreServices -lpthread -o test```
 
-### Linux Extras
+### Linux/FreeBSD Extras
 **NOTE**: If you want to compile with `c11` standard, you need to add gnu compiler extensions as well, otherwise you will get compilation errors. So the compilation command for test example would be: ```gcc test.c -lpthread -std=gnu11 -o test```
 
 There is this other file `dmon_extra.h` that you can include optionally after `dmon.h` for linux backend. 
