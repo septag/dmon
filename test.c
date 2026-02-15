@@ -3,7 +3,7 @@
 #define DMON_IMPL
 #include "dmon.h"
 
-#if DMON_OS_LINUX
+#if DMON_OS_INOTIFY
 #include "dmon_extra.h"
 #endif
 
