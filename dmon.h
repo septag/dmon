@@ -91,7 +91,6 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <sys/param.h>
 
 #ifndef DMON_API_DECL
 #   define DMON_API_DECL
@@ -176,6 +175,7 @@ DMON_API_DECL void dmon_unwatch(dmon_watch_id id);
 #    ifndef __USE_MISC
 #        define __USE_MISC
 #    endif
+#    include <sys/param.h>
 #    include <dirent.h>
 #    include <errno.h>
 #    include <fcntl.h>
