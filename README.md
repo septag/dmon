@@ -7,6 +7,7 @@ It provides a unified solution to multiple system APIs that exist for each OS. I
 ### Platforms
 - Windows: `ReadDirectoryChangesW` backend. Tested with Windows10 SDK + Visual Studio 2019
 - Linux: `inotify` backend. Tested with gcc-7.4/clang-6, ubuntu 18.04 LTS
+- FreeBSD (as of 15.0): Compatibilty with Linux's `inotify` interface. Tested with gcc14.2/clang-19.1
 - MacOS: `FSEvents` backend. Tested with MacOS-10.14 clang 10
 
 ### Usage
@@ -38,16 +39,16 @@ For more information and how to customize functionality, see [dmon.h](dmon.h)
 
 # Build Example
 - Windows: ```cl test.c```
-- Linux: ```gcc test.c -lpthread -o test```
+- Linux/Unix: ```gcc test.c -lpthread -o test```
 - MacOS: ```clang test.c -framework CoreFoundation -framework CoreServices -lpthread -o test```
 
-### Linux Extras
+### INotify backend Extras
 **NOTE**: If you want to compile with `c11` standard, you need to add gnu compiler extensions as well, otherwise you will get compilation errors. So the compilation command for test example would be: ```gcc test.c -lpthread -std=gnu11 -o test```
 
-There is this other file `dmon_extra.h` that you can include optionally after `dmon.h` for linux backend. 
+There is this other file `dmon_extra.h` that you can include optionally after `dmon.h` for inotify backend. 
 There are two APIs that are introduced in that header, `dmon_watch_add` and `dmon_watch_rm` in which you can add/remove 
 sub-directories to currently watched directory. This can be useful in cases where there are large set of changes happening 
-on linux backend and you won't get all the events, because of some drawbacks of the `inotify` backend. So, by disabling `DMON_WATCHFLAGS_RECURSIVE` and using these functions to manually handle directory recursion, you can workaround those issues.
+on inotify backend and you won't get all the events, because of some drawbacks of the `inotify` backend. So, by disabling `DMON_WATCHFLAGS_RECURSIVE` and using these functions to manually handle directory recursion, you can workaround those issues.
 
 
 [License (BSD 2-clause)](https://github.com/septag/dmon/blob/master/LICENSE)
